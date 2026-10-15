@@ -80,7 +80,7 @@ object BitmapIo {
         dst.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
         dst.setAttribute(ExifInterface.TAG_PIXEL_X_DIMENSION, w.toString())
         dst.setAttribute(ExifInterface.TAG_PIXEL_Y_DIMENSION, h.toString())
-        dst.setAttribute(ExifInterface.TAG_SOFTWARE, "FotoMaster 1.0")
+        dst.setAttribute(ExifInterface.TAG_SOFTWARE, "FotoMaster 1.1")
         dst.saveAttributes()
     }
 

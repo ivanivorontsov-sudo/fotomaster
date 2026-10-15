@@ -36,7 +36,7 @@ fun HomeScreen(vm: EditorViewModel, onOpen: () -> Unit, onAccounts: () -> Unit) 
     val msg by vm.message.collectAsState()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) vm.openUri(uri, onOpen) }
     var confirmDelete by remember { mutableStateOf<org.ivanivorontsov.fotomaster.io.ProjectInfo?>(null) }
-    Column(Modifier.fillMaxSize().systemBarsPadding().padding(16.dp)) {
+    Column(Modifier.fillMaxSize().systemBarsPadding().imePadding().padding(16.dp)) {
         Text("ФотоМастер", fontSize = 30.sp, fontWeight = FontWeight.Bold)
         Text("Без рекламы, подписок и водяных знаков. Всё на телефоне.", color = Color.Gray, fontSize = 14.sp)
         Spacer(Modifier.height(16.dp))

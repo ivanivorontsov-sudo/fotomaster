@@ -28,8 +28,9 @@
     el.focus();
     if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
       var proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      try { el.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType: 'insertText', data: value })); } catch (x) {}
       Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
-      el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }));
+      try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value })); } catch (x) { el.dispatchEvent(new Event('input', { bubbles: true })); } el.dispatchEvent(new Event('change', { bubbles: true }));
     } else {
       document.execCommand('selectAll', false, null); document.execCommand('insertText', false, value);
       if (txt(el) !== value) { el.textContent = value; el.dispatchEvent(new InputEvent('input', { bubbles: true, data: value })); }
@@ -55,18 +56,86 @@
     }
     return null;
   }
-  async function stepMode(s) {
-    var direct = q(s.item, s.itemText);
-    if (q(s.active) || (s.activeText && q(s.active.concat(['[class*="feature"]', '[class*="tag"]', '[class*="chip"]']), s.activeText) && !direct)) { log('режим «' + s.name + '» уже включён'); return; }
-    if (direct && !/^(LI|SPAN)$/.test(direct.tagName)) { log('нажимаю «' + txt(direct) + '»'); click(direct); await sleep(1000); return; }
-    var it = await openMenuItem(s.open || [], s.item || [], s.itemText);
-    if (it) { log('включаю режим: ' + txt(it)); click(it); await sleep(1200); return; }
-    if (s.fallbackText) {
-      it = q(s.item, s.fallbackText) || await openMenuItem(s.open || [], s.item || [], s.fallbackText);
-      if (it) { log('ВНИМАНИЕ: «' + s.name + '» не найден, включаю «' + txt(it) + '» (картинка может перерисоваться сильнее)'); B.warn('Режим «' + s.name + '» не найден, использован «' + txt(it) + '»'); click(it); await sleep(1200); return; }
+  function textOf(e) { return [txt(e), e.getAttribute('aria-label') || '', e.getAttribute('title') || '', e.getAttribute('data-tooltip') || ''].join(' ').replace(/\s+/g, ' ').trim(); }
+  function findByText(sels, re) {
+    var rx = new RegExp(re, 'i'); var best = null;
+    for (var i = 0; i < sels.length; i++) {
+      var list; try { list = document.querySelectorAll(sels[i]); } catch (e) { continue; }
+      for (var j = 0; j < list.length; j++) { var e = list[j]; if (!vis(e)) continue; var t = textOf(e); if (t.length > 60 || !rx.test(t)) continue;
+        if (!best || t.length < textOf(best).length) best = e; }
+      if (best) return best;
     }
-    if (!s.optional) fail('mode', 'Не нашёл кнопку режима «' + s.name + '». Сайт мог измениться: обновите селекторы в providers.json');
+    return null;
   }
+  function modeActive(s) {
+    if (q(s.active)) return true;
+    if (!s.activeText) return false;
+    var rx = new RegExp(s.activeText, 'i');
+    var chips = document.querySelectorAll('[class*="tag"],[class*="chip"],[class*="selected"],[class*="active"],[aria-pressed="true"],[aria-selected="true"],[aria-checked="true"]');
+    for (var i = 0; i < chips.length; i++) { if (vis(chips[i]) && rx.test(textOf(chips[i])) && textOf(chips[i]).length < 60) return true; }
+    var ta = q(['textarea', '[contenteditable=true]']); if (ta && rx.test(ta.getAttribute('placeholder') || '')) return true;
+    var bar = inputBar(); for (var k = 0; k < 2 && bar && bar.parentElement; k++) bar = bar.parentElement;
+    if (bar) { var els = bar.querySelectorAll('button,span,div'); for (var j = 0; j < els.length; j++) { var t = textOf(els[j]); if (t && t.length < 30 && vis(els[j]) && rx.test(t)) return true; } }
+    return false;
+  }
+  function inputBar() { var ta = q(['textarea', '[contenteditable=true]']); var box = ta; for (var k = 0; k < 4 && box && box.parentElement; k++) { box = box.parentElement; if (box.querySelectorAll('button,[role=button]').length >= 2) break; } return box; }
+  function openers(s) {
+    var out = []; var seen = new Set();
+    function add(e) { if (e && vis(e) && !seen.has(e)) { seen.add(e); out.push(e); } }
+    (s.open || []).forEach(function (sel) { try { document.querySelectorAll(sel).forEach(add); } catch (e) {} });
+    var box = inputBar();
+    if (box) { var fb = Array.prototype.filter.call(box.querySelectorAll('button,[role=button]'), vis); if (fb.length) add(fb[0]); }
+    for (var k2 = 0; k2 < 2 && box && box.parentElement; k2++) box = box.parentElement;
+    if (box) box.querySelectorAll('button,[role=button]').forEach(function (b) { var t = textOf(b); if (/^\+$|^$|more|tool|plus|feature|mode|add|ещё|инструмент|функц/i.test(t + ' ' + (b.className || ''))) add(b); });
+    return out.filter(function (e) { return !/send|stop|voice|mic|отправ/i.test(textOf(e) + ' ' + (e.className || '')); }).slice(0, 12);
+  }
+  function isChecked(e) {
+    for (var n = e, k = 0; n && k < 4; n = n.parentElement, k++) {
+      if (['aria-checked', 'aria-selected', 'aria-pressed', 'data-checked', 'data-selected'].some(function (a) { return n.getAttribute && n.getAttribute(a) === 'true'; })) return true;
+      if (/(^|[\s_-])(active|checked|selected|is-active|is-checked)([\s_-]|$)/i.test(String(n.className || ''))) return true;
+      if (n.querySelector && n.querySelector('[class*="check" i]:not([class*="checkbox"]),[data-icon*="check"],[aria-label*="check" i]')) return true;
+      if (/[✓✔]/.test(n.textContent || '') && (n.textContent || '').length < 60) return true;
+      if (k >= 1 && n.querySelectorAll && n.querySelectorAll('li,[role=menuitem],[role=option]').length > 1) break;
+    }
+    return false;
+  }
+  async function closeSheet() {
+    var c = q(['[class*="sheet"] [aria-label*="close" i]', '[class*="drawer"] [aria-label*="close" i]', '[aria-label*="Закрыть"]', '[aria-label*="close" i]', '.ant-drawer-close', '[class*="close"]']);
+    if (c) click(c); else { try { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); } catch (e) {} }
+    await sleep(500);
+  }
+  async function pickItem(s, it) {
+    if (isChecked(it)) { log('«' + textOf(it) + '» уже отмечен, не переключаю'); if (s.closeAfter) await closeSheet(); return; }
+    log('включаю режим: ' + textOf(it)); click(it); await sleep(1100);
+    if (s.closeAfter && findByText(s.item, s.itemText)) await closeSheet();
+  }
+  async function stepMode(s) {
+    if (s.urlActivates && location.href.indexOf(s.urlActivates) >= 0) await sleep(1500);
+    if (modeActive(s)) { log('режим «' + s.name + '» уже включён'); FM.modeOk = true; return; }
+    var direct = findByText(s.item, s.itemText);
+    if (direct) { await pickItem(s, direct); FM.modeOk = true; return; }
+    var ops = openers(s); log('ищу режим в меню: кнопок-кандидатов ' + ops.length);
+    for (var i = 0; i < ops.length; i++) {
+      var o = ops[i]; if (!document.contains(o) || !vis(o)) continue;
+      click(o); await sleep(1000);
+      var it = findByText(s.item, s.itemText);
+      if (it) { log('меню: ' + (textOf(o) || String(o.className) || '?').slice(0, 30)); await pickItem(s, it); FM.modeOk = true; return; }
+      try { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); document.body.click(); } catch (e) {}
+      await sleep(400);
+    }
+    B.saveDump(dumpPage('mode-not-found'));
+    if (s.optional) { FM.modeOk = false; FM.modeStep = s; log('режим «' + s.name + '» не найден, пробую обычный чат: фото + запрос'); B.warn('Кнопка «' + s.name + '» не найдена — отправляю фото с запросом в обычный чат'); return; }
+    fail('mode', 'Не нашёл кнопку режима «' + s.name + '»');
+  }
+  function dumpPage(reason) {
+    var items = [];
+    document.querySelectorAll('button,[role=button],[role=menuitem],[role=option],[role=tab],a,input,textarea,[contenteditable=true],[aria-haspopup],li').forEach(function (e) {
+      if (items.length > 400) return;
+      items.push({ tag: e.tagName, vis: vis(e), text: txt(e).slice(0, 80), aria: e.getAttribute('aria-label') || '', title: e.getAttribute('title') || '', cls: String(e.className || '').slice(0, 120), id: e.id || '', type: e.getAttribute('type') || '', placeholder: e.getAttribute('placeholder') || '', testid: e.getAttribute('data-testid') || '' });
+    });
+    return JSON.stringify({ reason: reason, url: location.href, title: document.title, time: new Date().toISOString(), ua: navigator.userAgent, items: items }, null, 1);
+  }
+  FM.dumpPage = dumpPage;
   async function stepUpload(s) {
     var input = q(s.input);
     if (input) {
@@ -75,9 +144,13 @@
     } else {
       B.armChooser();
       var opened = false;
-      var o = q(s.open);
-      if (o) { log('открываю загрузку: ' + (txt(o) || o.className)); click(o); await sleep(900);
-        if (!B.chooserUsed()) { var it = q(s.item, s.itemText); if (it) { log('пункт меню: ' + txt(it)); click(it); } }
+      var o = q(s.open) || openers(s)[0];
+      if (o) { log('открываю загрузку: ' + (textOf(o) || String(o.className).slice(0, 30))); click(o); await sleep(1000);
+        if (!B.chooserUsed()) {
+          var g = gridItems(s); var idx = s.gridIndex || [];
+          for (var gi = 0; gi < idx.length && !B.chooserUsed(); gi++) { if (g[idx[gi]]) { log('иконка загрузки №' + (idx[gi] + 1)); click(g[idx[gi]]); await waitFor(function () { return B.chooserUsed(); }, 2500); } }
+          if (!B.chooserUsed()) { var it = q(s.item, s.itemText); if (it) { log('пункт меню: ' + textOf(it)); click(it); } }
+        }
         opened = true; }
       await waitFor(function () { return B.chooserUsed() || q(s.input); }, 4000);
       if (!B.chooserUsed()) {
@@ -97,14 +170,55 @@
     log(ok ? 'фото прикреплено' : 'не вижу превью вложения, продолжаю');
     await sleep(1500);
   }
+  function gridItems(s) {
+    if (!s.gridAfterText) return [];
+    var rx = new RegExp(s.gridAfterText, 'i'); var all = document.querySelectorAll('div,span,p,h3,h4,label');
+    for (var i = 0; i < all.length; i++) {
+      var e = all[i]; if (!vis(e) || e.children.length > 0 || !rx.test(txt(e))) continue;
+      for (var n = e; n && n !== document.body; n = n.parentElement) {
+        var sib = n.nextElementSibling; while (sib && !vis(sib)) sib = sib.nextElementSibling;
+        if (sib) { var items = Array.prototype.filter.call(sib.querySelectorAll('button,[role=button],div[class*="item"],div[class*="upload"],label'), vis).filter(function (x) { return !x.querySelector('button,[role=button]'); });
+          if (items.length < 2) items = Array.prototype.filter.call(sib.children, vis);
+          if (items.length >= 2) return items; }
+      }
+    }
+    return [];
+  }
   async function stepType(s) { var e = q(s.selectors); if (!e) fail('input', 'Нет поля ввода'); setText(e, prompt); await sleep(500); log('запрос введён'); }
+  function composerText() { var ta = q(['textarea', '[contenteditable=true]']); return ta ? (ta.value !== undefined && ta.tagName !== 'DIV' ? ta.value : txt(ta)) : ''; }
+  function promptBubbles() {
+    var key = (prompt || '').trim().slice(0, 40); if (!key) return 0; var n = 0;
+    var ta = q(['textarea', '[contenteditable=true]']);
+    document.querySelectorAll('div,p,span').forEach(function (e) { if (e.children.length === 0 && vis(e) && (!ta || !ta.contains(e)) && txt(e).indexOf(key) >= 0) n++; });
+    return n;
+  }
+  function sendButton(s) {
+    var b = q(s.selectors); if (b && !b.disabled) return b;
+    if (s.composer) { var bar = inputBar(); if (bar) { var bs = Array.prototype.filter.call(bar.querySelectorAll('button,[role=button]'), function (x) { return vis(x) && !x.disabled; }); if (bs.length) return bs[bs.length - 1]; } }
+    return null;
+  }
+  function pressEnter() { var ta = q(['textarea', '[contenteditable=true]']); if (!ta) return; ta.focus(); var o = { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true };
+    ['keydown', 'keypress', 'keyup'].forEach(function (t) { ta.dispatchEvent(new KeyboardEvent(t, o)); }); }
+  async function sentOk(b0) { return await waitFor(function () { return composerText().trim() === '' || promptBubbles() > b0 ? true : null; }, 6000); }
   async function stepSend(s) {
     before = {}; allImgSrc().forEach(function (x) { before[x] = 1; });
-    var e = await waitFor(function () { var b = q(s.selectors); return b && !b.disabled && !/disabled/.test(b.className) ? b : null; }, 20000);
-    if (e) { click(e); log('отправлено'); }
-    else if (s.enterFallback) { var ta = q(['textarea', '[contenteditable=true]']); ta && ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true })); log('отправлено через Enter'); }
-    else fail('send', 'Кнопка отправки не найдена');
-    FM.sendSel = s.selectors; await sleep(1500);
+    FM.sendSel = s.selectors;
+    if (composerText().trim() === '') { var ti = cfg.steps.find(function (x) { return x.do === 'type'; }); if (ti) await stepType(ti); }
+    var b0 = promptBubbles();
+    for (var attempt = 0; attempt < 2; attempt++) {
+      var e = await waitFor(function () { var b = sendButton(s); return b && !/disabled/.test(String(b.className)) ? b : null; }, attempt ? 5000 : 20000);
+      if (e) { click(e); log('нажата отправка' + (attempt ? ' (повтор)' : '')); }
+      if (await sentOk(b0)) { log('отправлено'); await sleep(1000); return; }
+      if (s.enterFallback) { pressEnter(); log('пробую Enter'); if (await sentOk(b0)) { log('отправлено через Enter'); await sleep(1000); return; } }
+    }
+    log('запрос остался в поле ввода — не отправлено');
+    B.saveDump(dumpPage('send-failed'));
+    B.needUser('Сайт не принял отправку. Нажмите кнопку отправки в окне сайта, затем «Продолжить».');
+    var end = Date.now() + 300000;
+    while (Date.now() < end) { await sleep(700); if (B.userDone() || (await sentOk(b0))) break; }
+    B.userHandled();
+    if (composerText().trim() !== '' && promptBubbles() <= b0) fail('send', 'Запрос не отправлен: сайт не принял нажатие кнопки отправки');
+    log('отправлено (вручную)');
   }
   function largest(img) {
     var best = img.currentSrc || img.src;
@@ -128,16 +242,16 @@
         var im = cands[cands.length - 1]; var url = largest(im);
         var urls = [url]; (s.rewrite || []).forEach(function (rw) { var u2 = url.replace(new RegExp(rw[0]), rw[1]); if (u2 !== url) urls.unshift(u2); });
         log('картинка найдена ' + im.naturalWidth + 'x' + im.naturalHeight);
-        for (var k = 0; k < urls.length; k++) { if (await deliver(urls[k])) { FM.running = false; return; } }
-        B.resultUrl(urls[urls.length - 1]); FM.running = false; return;
+        for (var k = 0; k < urls.length; k++) { if (await deliver(urls[k])) { FM.running = false; return 'ok'; } }
+        B.resultUrl(urls[urls.length - 1]); FM.running = false; return 'ok';
       }
       var lastMsg = null; for (var c = 0; c < s.containers.length && !lastMsg; c++) { try { var all = document.querySelectorAll(s.containers[c]); if (all.length) lastMsg = all[all.length - 1]; } catch (e) {} }
       var t = lastMsg ? txt(lastMsg) : '';
       if (t && t === lastText && !busy) stable++; else stable = 0; lastText = t;
-      if (stable >= 10 && t.length > 0) fail('text', 'Сервис ответил текстом без картинки: ' + t.slice(0, 300));
+      if (stable >= 10 && t.length > 0) { FM.textAnswer = t; return 'text'; }
       if ((Date.now() - t0) % 15000 < 1600) log(busy ? 'генерация…' : 'жду ответ…');
     }
-    fail('timeout', 'Не дождался картинки за ' + Math.round((s.timeout || 300000) / 1000) + ' с');
+    return 'timeout';
   }
   async function deliver(url) {
     try {
@@ -150,16 +264,40 @@
     } catch (e) { log('fetch не удался (' + e.message + '), скачаю через приложение'); return false; }
   }
   FM.loggedIn = function () { var l = cfg.loggedIn || {}; return !q(l.absent || []) && !(l.absentText && q(['button', 'a'], l.absentText)); };
+  async function runSteps(from) {
+    for (var i = from; i < cfg.steps.length; i++) {
+      var s = cfg.steps[i]; log('шаг ' + (i + 1) + ': ' + s.do);
+      if (s.do === 'wait') await stepWait(s); else if (s.do === 'dismiss') await stepDismiss(s); else if (s.do === 'mode') await stepMode(s);
+      else if (s.do === 'upload') await stepUpload(s); else if (s.do === 'type') await stepType(s); else if (s.do === 'send') await stepSend(s);
+      else if (s.do === 'result') return await stepResult(s);
+    }
+    return 'ok';
+  }
+  async function askUser(reason) {
+    B.saveDump(dumpPage(reason));
+    var ms = FM.modeStep;
+    B.needUser('Нажмите в окне сайта кнопку режима «' + (ms ? ms.name : 'Image Edit') + '» (обычно под «+» у поля ввода), затем «Продолжить».');
+    var end = Date.now() + 300000;
+    while (Date.now() < end) { await sleep(700); if (B.userDone()) break; if (ms && modeActive(ms)) { log('режим включён пользователем'); await sleep(800); break; } }
+    B.userHandled();
+    if (Date.now() >= end) fail('user', 'Не дождался выбора режима');
+  }
   (async function () {
     try {
       if (B.mode() === 'check') { await sleep(4000); B.checkDone(FM.loggedIn(), document.title + ' | ' + location.href); FM.running = false; return; }
+      if (B.mode() === 'dump') { await sleep(3000); B.saveDump(dumpPage('manual')); FM.running = false; return; }
       log('старт ' + cfg.id + ' ' + location.href);
-      if (!FM.loggedIn()) B.warn('Похоже, вход в аккаунт не выполнен. Лимиты могут быть меньше или потребуется войти.');
-      for (var i = 0; i < cfg.steps.length; i++) {
-        var s = cfg.steps[i]; log('шаг ' + (i + 1) + ': ' + s.do);
-        if (s.do === 'wait') await stepWait(s); else if (s.do === 'dismiss') await stepDismiss(s); else if (s.do === 'mode') await stepMode(s);
-        else if (s.do === 'upload') await stepUpload(s); else if (s.do === 'type') await stepType(s); else if (s.do === 'send') await stepSend(s); else if (s.do === 'result') await stepResult(s);
+      await sleep(1500);
+      if (!FM.loggedIn()) { if (cfg.requireLogin) fail('login', 'Вход в аккаунт не выполнен: на странице кнопка «Войти». Нажмите «Войти» в приложении.'); else B.warn('Вход не выполнен — продолжаю без входа (лимиты могут быть меньше).'); }
+      var res = await runSteps(0);
+      if (res !== 'ok' && FM.modeOk === false && FM.modeStep && FM.modeStep.askUserOnFail) {
+        log('обычный чат не вернул картинку (' + res + '), прошу выбрать режим вручную');
+        await askUser('no-image-' + res);
+        var up = cfg.steps.findIndex(function (x) { return x.do === 'upload'; });
+        res = await runSteps(up);
       }
-    } catch (e) { if (e.message !== '__fm_stop') { FM.running = false; B.fail('js', e.message); } }
+      if (res === 'text') { B.saveDump(dumpPage('text-answer')); fail('text', 'Сервис ответил текстом без картинки: ' + (FM.textAnswer || '').slice(0, 300)); }
+      if (res === 'timeout') { B.saveDump(dumpPage('timeout')); fail('timeout', 'Не дождался картинки'); }
+    } catch (e) { if (e.message !== '__fm_stop') { FM.running = false; try { B.saveDump(dumpPage('js-error: ' + e.message)); } catch (x) {} B.fail('js', e.message); } }
   })();
 })();

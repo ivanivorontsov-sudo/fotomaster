@@ -39,7 +39,7 @@ class AndroidIoRobolectricTest {
         assertEquals("realme", e.getAttribute(ExifInterface.TAG_MAKE)); assertEquals("realme 15 5G", e.getAttribute(ExifInterface.TAG_MODEL))
         assertEquals("2026:10:16 05:00:00", e.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL))
         assertEquals("1", e.getAttribute(ExifInterface.TAG_ORIENTATION)); assertNotNull(e.latLong)
-        assertEquals("FotoMaster 1.0", e.getAttribute(ExifInterface.TAG_SOFTWARE))
+        assertEquals("FotoMaster 1.1", e.getAttribute(ExifInterface.TAG_SOFTWARE))
         BitmapIo.copyExif(ExifInterface(src.absolutePath), dst, 64, 48, keepGps = false)
         assertEquals("realme", ExifInterface(dst.absolutePath).getAttribute(ExifInterface.TAG_MAKE))
     }

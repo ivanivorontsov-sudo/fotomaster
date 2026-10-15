@@ -26,13 +26,13 @@ enum class Tool(val title: String, val icon: ImageVector) {
     LIGHT("Свет", Icons.Default.WbSunny), COLOR("Цвет", Icons.Default.Palette), HSL("HSL", Icons.Default.ColorLens),
     CURVES("Кривые", Icons.Default.ShowChart), DETAIL("Детали", Icons.Default.Grain), HEAL("Ретушь", Icons.Default.Healing),
     BRUSH("Кисть", Icons.Default.Brush), TEXT("Текст", Icons.Default.TextFields), BG("Фон", Icons.Default.PersonOutline),
-    MASK("Маски", Icons.Default.Gradient), LAYERS("Слои", Icons.Default.Layers), AI("Нейросети", Icons.Default.AutoAwesome),
-    HISTORY("История", Icons.Default.History)
+    MASK("Маски", Icons.Default.Gradient), LAYERS("Слои", Icons.Default.Layers),    HISTORY("История", Icons.Default.History)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, showWeb: Boolean, onToggleWeb: () -> Unit, onAccounts: () -> Unit) {
+fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, showWeb: Boolean, onToggleWeb: () -> Unit, onAccounts: () -> Unit, onLogin: (String) -> Unit = {}, initialTab: Int = 0) {
+    var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(initialTab) }
     val bm by vm.rendered.collectAsState()
     val before by vm.before.collectAsState()
     val busy by vm.busy.collectAsState()
@@ -47,7 +47,7 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, showWeb: Boolean, onTo
     val handler = remember { mutableStateOf<CanvasHandler>(NoHandler) }
     LaunchedEffect(tool) { vm.renderNoCrop.value = tool == Tool.CROP; if (tool != Tool.CROP) vm.cancelPreview() }
 
-    Column(Modifier.fillMaxSize().systemBarsPadding()) {
+    Column(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
         Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
             IconButton(vm::undo, enabled = canUndo) { Icon(Icons.AutoMirrored.Filled.Undo, "Отменить") }
@@ -60,6 +60,11 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, showWeb: Boolean, onTo
             IconButton({ vt.reset() }) { Icon(Icons.Default.FitScreen, "Вписать") }
             FilledTonalIconButton({ showExport = true }, Modifier.padding(end = 6.dp)) { Icon(Icons.Default.Save, "Сохранить") }
         }
+        TabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.surface) {
+            Tab(tab == 0, { tab = 0 }, text = { Text("Редактор") }, icon = { Icon(Icons.Default.Tune, null) })
+            Tab(tab == 1, { tab = 1 }, text = { Text("ИИ-промпт", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }, icon = { Icon(Icons.Default.AutoAwesome, null, tint = Accent) })
+        }
+        if (tab == 1) { PromptTab(vm, onLogin, showWeb, onToggleWeb); return@Column }
         Box(Modifier.weight(1f).fillMaxWidth().background(Color(0xFF08090B))) {
             ImageCanvas(bm, before, holdBefore, split, vt, handler.value)
             if (split != null) Slider(split!!, { split = it }, Modifier.align(Alignment.BottomCenter).padding(horizontal = 24.dp))
@@ -70,13 +75,16 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, showWeb: Boolean, onTo
                 Box(Modifier.heightIn(max = 300.dp)) {
                     ToolPanel(tool, vm, vt, handler, showWeb, onToggleWeb, onAccounts)
                 }
-                LazyRow(Modifier.fillMaxWidth().padding(vertical = 4.dp), contentPadding = PaddingValues(horizontal = 6.dp)) {
+                val stripState = androidx.compose.foundation.lazy.rememberLazyListState()
+                ScrollHintBox(stripState, "tool_strip") {
+                LazyRow(Modifier.fillMaxWidth().padding(vertical = 4.dp), state = stripState, contentPadding = PaddingValues(horizontal = 6.dp)) {
                     itemsIndexed(Tool.entries) { _, t ->
                         Column(Modifier.width(70.dp).padding(2.dp).pointerInput(t) { detectTapGestures { tool = t } }, horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(t.icon, t.title, tint = if (t == tool) Accent else Color.LightGray)
                             Text(t.title, fontSize = 11.sp, color = if (t == tool) Accent else Color.LightGray, maxLines = 1)
                         }
                     }
+                }
                 }
             }
         }

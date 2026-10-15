@@ -6,14 +6,15 @@
       "id": "qwen",
       "title": "Qwen",
       "loginUrl": "https://chat.qwen.ai/auth?action=signin",
-      "startUrl": "https://chat.qwen.ai/?inputFeature=image_edit",
-      "returnsImage": "Да: режим «Image Edit» (Qwen-Image-Edit) возвращает отредактированную картинку. Есть дневной лимит, без входа меньше.",
+      "startUrl": "https://chat.qwen.ai/",
+      "returnsImage": "Да: в Qwen редактирование фото — это режим «Создать изображение» (+ → Создать изображение) с прикреплённым фото и запросом; в ответе приходит новая картинка. Есть дневной лимит.",
       "loggedIn": {
         "absent": [
           "a[href*='/auth']",
           "button.login-button",
           "[class*='sign-in']"
-        ]
+        ],
+        "absentText": "^(Войти|Sign in|Log in|Login)$"
       },
       "steps": [
         {
@@ -21,7 +22,8 @@
           "selectors": [
             "textarea.message-input-textarea",
             "#chat-input",
-            "textarea"
+            "textarea",
+            "[contenteditable=true]"
           ],
           "timeout": 90000
         },
@@ -36,57 +38,75 @@
         },
         {
           "do": "mode",
-          "name": "Image Edit",
+          "name": "Создать изображение",
           "active": [
-            ".chat-input-feature-tag[class*='image_edit']",
-            "[class*='feature-tag'][class*='edit']",
-            "[class*='selected-feature']",
-            "[class*='input-feature'] [class*='active']"
+            ".chat-input-feature-tag[class*='image']",
+            "[class*='feature-tag'][class*='image']",
+            "[class*='feature-tag'][class*='t2i']"
           ],
-          "activeText": "(Image Edit|Edit Image|Редактирование изображ|Редактировать изображ|Изменить изображ|图像编辑|图片编辑)",
+          "activeText": "(создать изображение|create image|image generation|генерация изображ|модель \\d|model \\d)",
           "open": [
-            "button[class*='feature-btn']",
-            "[class*='chat-input-feature']",
             "button[class*='plus']",
-            "[class*='input-more']",
-            "[class*='mode-select']",
-            "button[aria-label*='more' i]",
-            "button[aria-label*='feature' i]",
-            "button[aria-label*='Ещё']"
-          ],
-          "item": [
-            "[role=menuitem]",
-            "[class*='dropdown'] li",
-            "[class*='menu'] li",
-            "[class*='feature'] button",
-            "[class*='feature-item']",
-            "button",
-            "li",
-            "span"
-          ],
-          "itemText": "^(Image Edit|Edit Image|Image Editing|Редактирование изображения|Редактировать изображение|Изменить изображение|图像编辑|图片编辑)$",
-          "fallbackText": "^(Create Image|Image Generation|Generate Image|Создать изображение|Генерация изображений|图像生成|生成图像)$",
-          "optional": false
-        },
-        {
-          "do": "upload",
-          "open": [
-            "button[class*='upload']",
-            "[class*='file-upload']",
-            "[class*='chat-input-upload']",
+            "[class*='plus-btn']",
+            "[class*='input-plus']",
+            "[class*='add-btn']",
+            "button[aria-label*='Загрузить']",
+            "button[aria-label*='Добав']",
             "button[aria-label*='upload' i]",
-            "button[aria-label*='Загруз']",
-            "button[class*='attach']",
+            "button[aria-label*='add' i]",
+            "button[aria-label*='more' i]",
             "[class*='mode-select-plus']"
           ],
           "item": [
             "[role=menuitem]",
-            "[class*='dropdown'] li",
+            "[role=option]",
+            "[role=menuitemcheckbox]",
+            "[class*='sheet'] li",
+            "[class*='drawer'] li",
+            "[class*='popup'] li",
             "[class*='menu'] li",
+            "[class*='item']",
+            "li",
+            "button",
+            "[role=button]",
+            "div",
+            "span"
+          ],
+          "itemText": "^(создать изображение|create image|image generation|generate image|генерация изображений|图像生成|生成图像)$",
+          "urlActivates": "",
+          "optional": true,
+          "askUserOnFail": true,
+          "closeAfter": true
+        },
+        {
+          "do": "upload",
+          "open": [
+            "button[class*='plus']",
+            "[class*='plus-btn']",
+            "[class*='input-plus']",
+            "[class*='add-btn']",
+            "button[aria-label*='Загрузить']",
+            "button[aria-label*='Добав']",
+            "button[aria-label*='upload' i]",
+            "button[aria-label*='add' i]",
+            "button[aria-label*='more' i]",
+            "[class*='mode-select-plus']"
+          ],
+          "gridAfterText": "^(Загрузить|Upload|上传)$",
+          "gridIndex": [
+            1,
+            3
+          ],
+          "item": [
+            "button[aria-label*='изображ' i]",
+            "button[aria-label*='image' i]",
+            "button[aria-label*='photo' i]",
+            "button[aria-label*='фото' i]",
+            "[role=menuitem]",
             "li",
             "button"
           ],
-          "itemText": "^(Upload Image|Upload Images|Upload|Загрузить изображение|Загрузить|上传图片|上传|Image|Изображение|Фото)$",
+          "itemText": "^(Изображение|Фото|Галерея|Image|Photo|Upload Image|Загрузить изображение|上传图片)$",
           "input": [
             "input[type=file][accept*='image']",
             "input[type=file]"
@@ -104,7 +124,8 @@
           "selectors": [
             "textarea.message-input-textarea",
             "#chat-input",
-            "textarea"
+            "textarea",
+            "[contenteditable=true]"
           ]
         },
         {
@@ -112,9 +133,12 @@
           "selectors": [
             "button.send-button",
             "#send-message-button",
-            "button[class*='send']"
+            "button[class*='send']",
+            "button[aria-label*='Отправ']",
+            "button[aria-label*='send' i]"
           ],
-          "enterFallback": true
+          "enterFallback": true,
+          "composer": true
         },
         {
           "do": "dismiss",
@@ -159,7 +183,8 @@
       "loggedIn": {
         "absent": [
           "[data-testid='login-button']"
-        ]
+        ],
+        "absentText": "^(Войти|Sign in|Log in|Login)$"
       },
       "steps": [
         {
@@ -219,7 +244,8 @@
             "button[aria-label*='Отправ']",
             "button[class*='Send']"
           ],
-          "enterFallback": true
+          "enterFallback": true,
+          "composer": true
         },
         {
           "do": "result",
@@ -257,7 +283,7 @@
           "[class*='GdprBanner']+button",
           "button[class*='login']"
         ],
-        "absentText": "^Войти$"
+        "absentText": "^(Войти|Sign in|Log in|Login)$"
       },
       "steps": [
         {
@@ -319,7 +345,8 @@
             "[class*='SendButton']",
             "button[type=submit]"
           ],
-          "enterFallback": true
+          "enterFallback": true,
+          "composer": true
         },
         {
           "do": "result",

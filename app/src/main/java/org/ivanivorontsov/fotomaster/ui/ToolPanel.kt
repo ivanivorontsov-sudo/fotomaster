@@ -71,7 +71,6 @@ fun ToolPanel(tool: Tool, vm: EditorViewModel, vt: ViewTransform, handler: Mutab
         Tool.BG -> BgPanel(vm, doc, vt, handler)
         Tool.MASK -> MaskPanel(vm, doc, vt, handler)
         Tool.LAYERS -> LayersPanel(vm, doc, vt, handler)
-        Tool.AI -> AiPanel(vm, showWeb, onToggleWeb, onAccounts)
         Tool.HISTORY -> HistoryPanel(vm)
     }
 }
@@ -162,7 +161,7 @@ fun PresetsPanel(vm: EditorViewModel, doc: Doc) {
         OutlinedButton({ naming = true }) { Icon(Icons.Default.Add, null); Text("Сохранить текущие настройки как пресет") }
     }
     if (naming) AlertDialog(onDismissRequest = { naming = false }, title = { Text("Название пресета") },
-        text = { OutlinedTextField(name, { name = it }, singleLine = true) },
+        text = { OutlinedTextField(name, { name = it }, singleLine = true, modifier = Modifier.bringIntoViewOnFocus()) },
         confirmButton = { TextButton({ if (name.isNotBlank()) vm.savePreset(name.trim()); naming = false; name = "" }) { Text("Сохранить") } })
 }
 

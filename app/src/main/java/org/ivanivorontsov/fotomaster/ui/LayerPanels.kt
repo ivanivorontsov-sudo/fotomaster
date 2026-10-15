@@ -118,7 +118,7 @@ fun TextPanel(vm: EditorViewModel, doc: Doc, handler: MutableState<CanvasHandler
     }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(text, { text = it; sel?.let { l -> vm.updateLayer(l.copy(text = it)) } }, Modifier.weight(1f), label = { Text("Текст") })
+            OutlinedTextField(text, { text = it; sel?.let { l -> vm.updateLayer(l.copy(text = it)) } }, Modifier.weight(1f).bringIntoViewOnFocus(), label = { Text("Текст") })
             Spacer(Modifier.width(6.dp))
             Button({ if (sel == null && text.isNotBlank()) vm.addLayer(Layer.Text(vm.doc.value.nextId(), text = text), "Добавлен текст") else if (sel != null) vm.commit("Текст", vm.doc.value) }) { Text(if (sel == null) "Добавить" else "Готово") }
         }

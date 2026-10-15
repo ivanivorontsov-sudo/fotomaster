@@ -46,6 +46,29 @@ class AiEngine(private val ctx: Context) {
     private val chunks = StringBuilder()
     private var timeoutTask: Runnable? = null
     var onCheck: ((Boolean, String) -> Unit)? = null
+    var onLoginHint: ((String, Boolean) -> Unit)? = null
+    val currentProviderId get() = provider?.id
+    val needUser = MutableStateFlow<String?>(null)
+    val lastDump = MutableStateFlow<File?>(null)
+    @Volatile private var userDoneFlag = false
+
+    fun continueAfterUser() { userDoneFlag = true }
+
+    fun dumpPage(p: AiProvider) {
+        val v = webView ?: return
+        CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(v, true); flush() }
+        provider = p; mode = "dump"
+        val url = v.url
+        if (url != null && url.startsWith("http")) { injected = true; v.evaluateJavascript("window.__FM && (window.__FM.running = false);", null); inject() }
+        else { injected = false; v.loadUrl(p.startUrl) }
+    }
+
+    private fun writeDump(json: String): File {
+        val dir = File(ctx.cacheDir, "debug").apply { mkdirs() }
+        val f = File(dir, "${provider?.id ?: "page"}-dump-${System.currentTimeMillis()}.json")
+        f.writeText(json); dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(10)?.forEach { it.delete() }
+        return f
+    }
 
     companion object {
         fun mobileUa(view: WebView): String =
@@ -64,7 +87,7 @@ class AiEngine(private val ctx: Context) {
         }
         view.addJavascriptInterface(Bridge(), "FMBridge")
         view.webViewClient = object : WebViewClient() {
-            override fun onPageFinished(v: WebView, url: String) { if (provider != null && !injected) { injected = true; main.postDelayed({ inject() }, 1500) } }
+            override fun onPageFinished(v: WebView, url: String) { CookieManager.getInstance().flush(); if (provider != null && !injected) { injected = true; main.postDelayed({ inject() }, 1500) } }
         }
         view.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(w: WebView, cb: ValueCallback<Array<Uri>>, p: FileChooserParams): Boolean {
@@ -89,6 +112,7 @@ class AiEngine(private val ctx: Context) {
 
     fun run(p: AiProvider, photo: Bitmap, userPrompt: String, timeoutMs: Long = 330_000) {
         val v = webView ?: return
+        CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(v, true); flush() }
         provider = p; prompt = userPrompt; mode = "run"; injected = false; chooserUsed = false; chooserArmed = false
         log.clear(); warnings.clear(); chunks.clear()
         val scaled = limit(photo, 2560)
@@ -104,11 +128,12 @@ class AiEngine(private val ctx: Context) {
 
     fun check(p: AiProvider) {
         val v = webView ?: return
+        CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(v, true); flush() }
         provider = p; mode = "check"; injected = false
         v.loadUrl(p.startUrl)
     }
 
-    fun cancel() { webView?.stopLoading(); webView?.loadUrl("about:blank"); provider = null; state.value = AiState.Idle }
+    fun cancel() { needUser.value = null; userDoneFlag = false; webView?.stopLoading(); webView?.loadUrl("about:blank"); provider = null; state.value = AiState.Idle }
 
     private fun limit(b: Bitmap, max: Int): Bitmap {
         val m = maxOf(b.width, b.height); if (m <= max) return b
@@ -150,12 +175,16 @@ class AiEngine(private val ctx: Context) {
         @JavascriptInterface fun armChooser() { chooserArmed = true; chooserUsed = false }
         @JavascriptInterface fun chooserUsed(): Boolean = chooserUsed
         @JavascriptInterface fun log(s: String) { main.post { add(s) } }
-        @JavascriptInterface fun warn(s: String) { main.post { warnings.add(s); add("⚠ $s") } }
+        @JavascriptInterface fun warn(s: String) { main.post { warnings.add(s); add("⚠ $s"); if (s.contains("вход", true)) onLoginHint?.invoke(provider?.id ?: "", false) } }
         @JavascriptInterface fun fail(code: String, msg: String) { main.post { finishFail(code, msg) } }
         @JavascriptInterface fun resultUrl(url: String) { main.post { add("скачиваю результат приложением"); download(url) } }
         @JavascriptInterface fun resultBegin(url: String, len: Int) { synchronized(chunks) { chunks.setLength(0) } }
         @JavascriptInterface fun resultChunk(s: String) { synchronized(chunks) { chunks.append(s) } }
         @JavascriptInterface fun resultEnd() { val b = synchronized(chunks) { chunks.toString() }; val bytes = Base64.decode(b, Base64.DEFAULT); main.post { finishOk(bytes) } }
+        @JavascriptInterface fun needUser(msg: String) { userDoneFlag = false; main.post { add("нужна помощь: $msg"); needUser.value = msg } }
+        @JavascriptInterface fun userDone(): Boolean = userDoneFlag
+        @JavascriptInterface fun userHandled() { userDoneFlag = false; main.post { needUser.value = null } }
+        @JavascriptInterface fun saveDump(json: String) { val f = writeDump(json); main.post { lastDump.value = f; add("снимок страницы сохранён: ${f.name}") } }
         @JavascriptInterface fun checkDone(ok: Boolean, info: String) { main.post { onCheck?.invoke(ok, info) } }
     }
 }

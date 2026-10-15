@@ -11,6 +11,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
@@ -70,27 +72,29 @@ enum class Screen { HOME, EDITOR, ACCOUNTS }
 fun App(vm: EditorViewModel) {
     MaterialTheme(colorScheme = darkColorScheme(primary = Accent, secondary = Color(0xFFFFB74D), background = Color(0xFF0E0F12), surface = Color(0xFF16181D))) {
         var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
-        var showWeb by remember { mutableStateOf(false) }
+        var showWebManual by remember { mutableStateOf(false) }
+        val needUser by vm.ai.needUser.collectAsState()
+        val showWeb = showWebManual || needUser != null
         var loginUrl by remember { mutableStateOf<String?>(null) }
         val pending by vm.pendingOpen.collectAsState()
         LaunchedEffect(pending) { pending?.let { u -> vm.pendingOpen.value = null; vm.openUri(u) { screen = Screen.EDITOR } } }
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Box(Modifier.fillMaxSize()) {
                 AndroidView(factory = { c -> WebView(c).also { vm.ai.attach(it) } },
-                    modifier = Modifier.fillMaxSize().zIndex(if (showWeb || loginUrl != null) 2f else 0f).alpha(if (showWeb || loginUrl != null) 1f else 0.01f))
+                    modifier = Modifier.fillMaxSize().then(if (loginUrl != null || showWeb) Modifier.statusBarsPadding().imePadding() else Modifier).zIndex(if (showWeb || loginUrl != null) 2f else 0f).alpha(if (showWeb || loginUrl != null) 1f else 0.01f))
                 Box(Modifier.fillMaxSize().zIndex(1f)) {
                     when (screen) {
                         Screen.HOME -> HomeScreen(vm, onOpen = { screen = Screen.EDITOR }, onAccounts = { screen = Screen.ACCOUNTS })
-                        Screen.EDITOR -> EditorScreen(vm, onBack = { vm.refreshProjects(); screen = Screen.HOME }, showWeb = showWeb, onToggleWeb = { showWeb = !showWeb }, onAccounts = { screen = Screen.ACCOUNTS })
+                        Screen.EDITOR -> EditorScreen(vm, onBack = { vm.refreshProjects(); screen = Screen.HOME }, showWeb = showWeb, onToggleWeb = { showWebManual = !showWebManual }, onAccounts = { screen = Screen.ACCOUNTS }, onLogin = { url -> loginUrl = url; vm.ai.webView?.loadUrl(url) })
                         Screen.ACCOUNTS -> AccountsScreen(vm, onBack = { screen = if (vm.project != null) Screen.EDITOR else Screen.HOME }, onLogin = { url -> loginUrl = url; vm.ai.webView?.loadUrl(url) })
                     }
                 }
-                if (loginUrl != null) LoginOverlay(onDone = { loginUrl = null; android.webkit.CookieManager.getInstance().flush(); vm.ai.webView?.loadUrl("about:blank") })
-                if (showWeb) WebOverlayBar(onHide = { showWeb = false })
+                if (loginUrl != null) LoginOverlay(onDone = { loginUrl = null; android.webkit.CookieManager.getInstance().flush(); vm.ai.webView?.loadUrl("about:blank"); if (screen == Screen.EDITOR) vm.checkLogin() })
+                if (showWeb) WebOverlayBar(needUser, onHide = { showWebManual = false; if (needUser != null) vm.ai.cancel() }, onContinue = { vm.ai.continueAfterUser() })
             }
             BackHandler(enabled = loginUrl != null || showWeb || screen != Screen.HOME) {
                 when { loginUrl != null -> { if (vm.ai.webView?.canGoBack() == true) vm.ai.webView?.goBack() else loginUrl = null }
-                    showWeb -> showWeb = false
+                    showWeb -> { showWebManual = false; if (needUser != null) vm.ai.cancel() }
                     screen == Screen.ACCOUNTS -> screen = if (vm.project != null) Screen.EDITOR else Screen.HOME
                     else -> { vm.refreshProjects(); screen = Screen.HOME } }
             }

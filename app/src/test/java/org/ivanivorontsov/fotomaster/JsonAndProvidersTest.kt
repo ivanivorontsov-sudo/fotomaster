@@ -33,16 +33,21 @@ class JsonAndProvidersTest {
         }
     }
 
-    @Test fun qwenOpensImageEditModeBeforeUpload() {
+    @Test fun qwenSelectsCreateImageBeforeUpload() {
         val q = Providers.parse(providersFile().readText()).first { it.id == "qwen" }
         val steps = q.raw.getJSONArray("steps"); val kinds = (0 until steps.length()).map { steps.getJSONObject(it).getString("do") }
         assertTrue(kinds.indexOf("mode") in 0 until kinds.indexOf("upload"))
+        assertTrue(kinds.indexOf("upload") < kinds.indexOf("type")); assertTrue(kinds.indexOf("type") < kinds.indexOf("send"))
         val mode = steps.getJSONObject(kinds.indexOf("mode"))
-        assertFalse(mode.getBoolean("optional"))
+        assertTrue(mode.getBoolean("optional")); assertTrue(mode.getBoolean("askUserOnFail")); assertTrue(mode.getBoolean("closeAfter"))
         val re = Regex(mode.getString("itemText"), RegexOption.IGNORE_CASE)
-        listOf("Image Edit", "Редактирование изображения", "图像编辑").forEach { assertTrue(it, re.containsMatchIn(it)) }
-        assertFalse(re.containsMatchIn("Create Image"))
-        assertTrue(q.startUrl.contains("inputFeature=image_edit"))
+        listOf("Создать изображение", "Create Image", "Image Generation", "создать изображение").forEach { assertTrue(it, re.containsMatchIn(it)) }
+        listOf("Создать видео", "Create Video", "Поиск в сети", "Глубокое исследование", "Слайды").forEach { assertFalse(it, re.containsMatchIn(it)) }
+        val active = Regex(mode.getString("activeText"), RegexOption.IGNORE_CASE)
+        assertTrue(active.containsMatchIn("Модель 3.0")); assertTrue(active.containsMatchIn("Model 3.0"))
+        val up = steps.getJSONObject(kinds.indexOf("upload"))
+        assertTrue(Regex(up.getString("gridAfterText"), RegexOption.IGNORE_CASE).matches("Загрузить"))
+        assertEquals(1, up.getJSONArray("gridIndex").getInt(0))
     }
 
     @Test fun rewriteRulesProduceFullSizeUrls() {
