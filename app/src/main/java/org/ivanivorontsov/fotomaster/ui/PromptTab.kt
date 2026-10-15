@@ -46,6 +46,7 @@ fun PromptTab(vm: EditorViewModel, onLogin: (String) -> Unit, showWeb: Boolean, 
     val provider = vm.providers.first { it.id == s.providerId }
     val selected = remember(tick) { s.selected }
     val running = st is AiState.Running
+    androidx.compose.runtime.LaunchedEffect(provider.id) { vm.ai.prewarm(provider) }
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth().background(Color(0xFF08090B)).testTag("prompt_preview")) {
             if (selected != null) {

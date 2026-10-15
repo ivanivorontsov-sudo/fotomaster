@@ -10,6 +10,8 @@ import android.os.Looper
 import android.util.Base64
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
@@ -54,8 +56,8 @@ class AiEngine(private val ctx: Context) {
 
     fun continueAfterUser() { userDoneFlag = true }
 
-    fun dumpPage(p: AiProvider) {
-        val v = webView ?: return
+    fun dumpPage(p: AiProvider): Unit = onMain {
+        val v = webView ?: return@onMain
         CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(v, true); flush() }
         provider = p; mode = "dump"
         val url = v.url
@@ -84,10 +86,19 @@ class AiEngine(private val ctx: Context) {
             javaScriptEnabled = true; domStorageEnabled = true; databaseEnabled = true
             loadWithOverviewMode = true; useWideViewPort = true; mediaPlaybackRequiresUserGesture = true
             userAgentString = mobileUa(view); allowFileAccess = false
+            cacheMode = WebSettings.LOAD_DEFAULT; offscreenPreRaster = true
         }
+        view.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
         view.addJavascriptInterface(Bridge(), "FMBridge")
         view.webViewClient = object : WebViewClient() {
-            override fun onPageFinished(v: WebView, url: String) { CookieManager.getInstance().flush(); if (provider != null && !injected) { injected = true; main.postDelayed({ inject() }, 1500) } }
+            override fun onPageStarted(v: WebView, url: String, favicon: android.graphics.Bitmap?) { pageStart = android.os.SystemClock.elapsedRealtime(); loadedUrl = null }
+            override fun onPageFinished(v: WebView, url: String) {
+                CookieManager.getInstance().flush(); loadedUrl = url
+                if (provider != null) add("⏱ страница загружена за %.1fs, заблокировано лишних запросов: %d".format((android.os.SystemClock.elapsedRealtime() - pageStart) / 1000f, blocked))
+                if (provider != null && !injected) { injected = true; main.postDelayed({ inject() }, 250) }
+            }
+            override fun shouldInterceptRequest(v: WebView, r: WebResourceRequest): WebResourceResponse? =
+                if (ResourceFilter.block(r.url.toString(), r.isForMainFrame)) { blocked++; WebResourceResponse("text/plain", "utf-8", java.io.ByteArrayInputStream(ByteArray(0))) } else null
         }
         view.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(w: WebView, cb: ValueCallback<Array<Uri>>, p: FileChooserParams): Boolean {
@@ -102,10 +113,23 @@ class AiEngine(private val ctx: Context) {
         }
     }
 
+    @Volatile private var blocked = 0
+    private var pageStart = 0L
+    private var loadedUrl: String? = null
+
+    fun prewarm(p: AiProvider): Unit = onMain {
+        val v = webView ?: return@onMain
+        if (state.value is AiState.Running || provider != null) return@onMain
+        if (loadedUrl?.let { sameStart(it, p.startUrl) } == true || v.url?.let { sameStart(it, p.startUrl) } == true) return@onMain
+        blocked = 0; v.loadUrl(p.startUrl)
+    }
+
+    private fun sameStart(a: String, b: String) = runCatching { val x = Uri.parse(a); val y = Uri.parse(b); x.host == y.host && x.path.orEmpty().trimEnd('/') == y.path.orEmpty().trimEnd('/') }.getOrDefault(false)
+
     private fun add(s: String) { log.add(s); if (log.size > 200) log.removeAt(0)
         val p = provider ?: return; if (state.value is AiState.Running) state.value = AiState.Running(p.title, log.toList()) }
 
-    private fun inject() {
+    private fun inject(): Unit = onMain {
         val js = ctx.assets.open("ai/runner.js").bufferedReader().readText()
         webView?.evaluateJavascript(js, null)
     }
@@ -113,6 +137,7 @@ class AiEngine(private val ctx: Context) {
     fun run(p: AiProvider, photo: Bitmap, userPrompt: String, timeoutMs: Long = 330_000) {
         val v = webView ?: return
         CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(v, true); flush() }
+        check(android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) { "run must be called on the main thread" }
         provider = p; prompt = userPrompt; mode = "run"; injected = false; chooserUsed = false; chooserArmed = false
         log.clear(); warnings.clear(); chunks.clear()
         val scaled = limit(photo, 2560)
@@ -123,17 +148,20 @@ class AiEngine(private val ctx: Context) {
         state.value = AiState.Running(p.title, listOf("Открываю ${p.title}…"))
         timeoutTask?.let { main.removeCallbacks(it) }
         timeoutTask = Runnable { if (state.value is AiState.Running) finishFail("timeout", "Сервис не ответил вовремя") }.also { main.postDelayed(it, timeoutMs) }
-        v.stopLoading(); v.loadUrl(p.startUrl)
+        blocked = 0
+        val warm = loadedUrl?.let { sameStart(it, p.startUrl) } == true && v.url?.let { sameStart(it, p.startUrl) } == true
+        if (warm) { add("⏱ страница уже прогрета, без перезагрузки"); injected = true; v.evaluateJavascript("window.__FM && (window.__FM.running = false);", null); inject() }
+        else { v.stopLoading(); v.loadUrl(p.startUrl) }
     }
 
-    fun check(p: AiProvider) {
-        val v = webView ?: return
+    fun check(p: AiProvider): Unit = onMain {
+        val v = webView ?: return@onMain
         CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(v, true); flush() }
         provider = p; mode = "check"; injected = false
         v.loadUrl(p.startUrl)
     }
 
-    fun cancel() { needUser.value = null; userDoneFlag = false; webView?.stopLoading(); webView?.loadUrl("about:blank"); provider = null; state.value = AiState.Idle }
+    fun cancel(): Unit = onMain { needUser.value = null; userDoneFlag = false; val wasRunning = state.value is AiState.Running; provider?.let { p -> if (wasRunning) { webView?.stopLoading(); webView?.loadUrl(p.startUrl) } }; provider = null; state.value = AiState.Idle }
 
     private fun limit(b: Bitmap, max: Int): Bitmap {
         val m = maxOf(b.width, b.height); if (m <= max) return b
@@ -153,19 +181,19 @@ class AiEngine(private val ctx: Context) {
         state.value = AiState.Failed(provider?.title ?: "", code, msg, log.toList())
     }
 
-    private fun download(url: String) {
+    private fun download(urls: String) = onMain {
+        val list = urls.split("\n").filter { it.startsWith("http") }
+        if (list.isEmpty()) { finishFail("download", "Нет адреса картинки"); return@onMain }
+        val url = list.first()
+        val req = NativeDownload.Request(url, CookieManager.getInstance().getCookie(url), webView?.settings?.userAgentString ?: "", webView?.url?.takeIf { it.startsWith("http") } ?: provider?.startUrl)
+        val cookies = list.associateWith { CookieManager.getInstance().getCookie(it) }
         Thread {
-            try {
-                val c = URL(url).openConnection() as HttpURLConnection
-                CookieManager.getInstance().getCookie(url)?.let { c.setRequestProperty("Cookie", it) }
-                c.setRequestProperty("User-Agent", webView?.settings?.userAgentString ?: "")
-                provider?.let { c.setRequestProperty("Referer", it.startUrl) }
-                c.connectTimeout = 30000; c.readTimeout = 60000
-                val bytes = c.inputStream.use { it.readBytes() }
-                main.post { finishOk(bytes) }
-            } catch (e: Exception) { main.post { finishFail("download", "Не удалось скачать результат: ${e.message}") } }
+            val r = NativeDownload.fetchFirst(list.map { req.copy(url = it, cookie = cookies[it]) })
+            main.post { r.fold({ finishOk(it) }, { finishFail("download", "Не удалось скачать результат: ${it.message}") }) }
         }.start()
     }
+
+    private fun onMain(f: () -> Unit) { if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) f() else main.post(f) }
 
     inner class Bridge {
         @JavascriptInterface fun config(): String = provider?.raw?.toString() ?: "{}"

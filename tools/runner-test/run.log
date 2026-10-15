@@ -29,7 +29,7 @@ PASS Alice: «Войти» on page -> only a hint, still sends and gets image
    8.5s шаг 7: dismiss
    8.5s шаг 8: result
    11.5s картинка найдена 1024x768
-   11.5s картинка скачана, 4 КБ
+   11.6s картинка получена (fetch), 4 КБ
 --- qwen-already-checked
    0.0s старт qwen http://127.0.0.1:8799/qwen?preset=1
    1.5s шаг 1: wait
@@ -51,7 +51,7 @@ PASS Alice: «Войти» on page -> only a hint, still sends and gets image
    5.9s шаг 7: dismiss
    5.9s шаг 8: result
    8.9s картинка найдена 1024x768
-   8.9s картинка скачана, 4 КБ
+   8.9s картинка получена (fetch), 4 КБ
 --- qwen-en-ui
    0.0s старт qwen http://127.0.0.1:8799/qwen?lang=en
    1.5s шаг 1: wait
@@ -75,7 +75,7 @@ PASS Alice: «Войти» on page -> only a hint, still sends and gets image
    8.5s шаг 7: dismiss
    8.5s шаг 8: result
    11.5s картинка найдена 1024x768
-   11.5s картинка скачана, 4 КБ
+   11.5s картинка получена (fetch), 4 КБ
 --- qwen-no-item-text-then-user
    0.0s старт qwen http://127.0.0.1:8799/qwen?noImg=1&reply=textOnce
    1.5s шаг 1: wait
@@ -115,7 +115,7 @@ PASS Alice: «Войти» on page -> only a hint, still sends and gets image
    28.9s шаг 8: result
    30.4s жду ответ…
    31.9s картинка найдена 1024x768
-   31.9s картинка скачана, 4 КБ
+   31.9s картинка получена (fetch), 4 КБ
 --- qwen-mode-ok-text-only
    0.0s старт qwen http://127.0.0.1:8799/qwen?reply=text
    1.5s шаг 1: wait
@@ -158,7 +158,7 @@ PASS Alice: «Войти» on page -> only a hint, still sends and gets image
    4.9s отправлено
    5.9s шаг 6: result
    8.9s картинка найдена 1024x768
-   8.9s картинка скачана, 4 КБ
+   8.9s картинка получена (fetch), 4 КБ
 --- alice-first-click-ignored
    0.0s старт alice http://127.0.0.1:8799/alice?ignore=1
    1.5s шаг 1: wait
@@ -177,9 +177,9 @@ PASS Alice: «Войти» on page -> only a hint, still sends and gets image
    10.9s пробую Enter
    16.9s нажата отправка (повтор)
    16.9s отправлено
-   17.9s шаг 6: result
-   20.9s картинка найдена 1024x768
-   20.9s картинка скачана, 4 КБ
+   18.0s шаг 6: result
+   19.5s картинка найдена 1024x768
+   19.5s картинка получена (fetch), 4 КБ
 --- alice-logged-out
    0.0s старт alice http://127.0.0.1:8799/alice?login=1
    WARN Вход не выполнен — продолжаю без входа (лимиты могут быть меньше).
@@ -199,5 +199,4 @@ PASS Alice: «Войти» on page -> only a hint, still sends and gets image
    4.9s отправлено
    5.9s шаг 6: result
    8.9s картинка найдена 1024x768
-   8.9s картинка скачана, 4 КБ
-EXIT 0
+   8.9s картинка получена (fetch), 4 КБ

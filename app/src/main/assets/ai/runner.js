@@ -6,6 +6,15 @@
   var prompt = B.prompt();
   var t0 = Date.now();
   function log(m) { try { B.log(((Date.now() - t0) / 1000).toFixed(1) + 's ' + m); } catch (e) {} }
+  function settle(max, quiet) {
+    quiet = quiet || 180;
+    return new Promise(function (res) {
+      var last = Date.now(), seen = false, start = Date.now();
+      var mo = new MutationObserver(function () { seen = true; last = Date.now(); });
+      try { mo.observe(document.body || document.documentElement, { childList: true, subtree: true, attributes: true }); } catch (e) {}
+      var iv = setInterval(function () { var now = Date.now(); if ((seen && now - last >= quiet) || now - start >= max) { clearInterval(iv); mo.disconnect(); res(); } }, 50);
+    });
+  }
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
   function vis(e) { if (!e) return false; var r = e.getBoundingClientRect(); var s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; }
   function txt(e) { return ((e.innerText || e.textContent || e.getAttribute('aria-label') || e.getAttribute('title') || '') + '').trim(); }
@@ -17,7 +26,7 @@
     }
     return null;
   }
-  async function waitFor(fn, timeout, every) { var end = Date.now() + timeout; while (Date.now() < end) { var v = fn(); if (v) return v; await sleep(every || 400); } return null; }
+  async function waitFor(fn, timeout, every) { var end = Date.now() + timeout; while (Date.now() < end) { var v = fn(); if (v) return v; await sleep(every || 150); } return null; }
   function click(e) {
     var r = e.getBoundingClientRect(); var o = { bubbles: true, cancelable: true, view: window, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
     try { e.dispatchEvent(new PointerEvent('pointerdown', o)); e.dispatchEvent(new MouseEvent('mousedown', o)); e.dispatchEvent(new PointerEvent('pointerup', o)); e.dispatchEvent(new MouseEvent('mouseup', o)); } catch (x) {}
@@ -41,13 +50,13 @@
   var before = {};
 
   async function stepWait(s) { var e = await waitFor(function () { return q(s.selectors); }, s.timeout || 60000); if (!e) fail('page', 'Страница не загрузилась или изменилась вёрстка (нет поля ввода)'); log('поле ввода найдено'); }
-  async function stepDismiss(s) { var e = q(s.selectors, s.text); if (e) { log('закрываю окно: ' + txt(e)); click(e); await sleep(800); if (s.resend) { FM.needResend = true; } } }
+  async function stepDismiss(s) { var e = q(s.selectors, s.text); if (e) { log('закрываю окно: ' + txt(e)); click(e); await settle(800); if (s.resend) { FM.needResend = true; } } }
   async function openMenuItem(open, item, re) {
     for (var i = 0; i < open.length; i++) {
       var list; try { list = document.querySelectorAll(open[i]); } catch (e) { continue; }
       for (var j = 0; j < list.length; j++) {
         var o = list[j]; if (!vis(o)) continue;
-        click(o); await sleep(900);
+        click(o); await settle(900);
         var it = q(item, re);
         if (it) return it;
         try { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); } catch (e) {}
@@ -106,7 +115,7 @@
   }
   async function pickItem(s, it) {
     if (isChecked(it)) { log('«' + textOf(it) + '» уже отмечен, не переключаю'); if (s.closeAfter) await closeSheet(); return; }
-    log('включаю режим: ' + textOf(it)); click(it); await sleep(1100);
+    log('включаю режим: ' + textOf(it)); click(it); await settle(1100);
     if (s.closeAfter && findByText(s.item, s.itemText)) await closeSheet();
   }
   async function stepMode(s) {
@@ -117,7 +126,7 @@
     var ops = openers(s); log('ищу режим в меню: кнопок-кандидатов ' + ops.length);
     for (var i = 0; i < ops.length; i++) {
       var o = ops[i]; if (!document.contains(o) || !vis(o)) continue;
-      click(o); await sleep(1000);
+      click(o); await settle(1000);
       var it = findByText(s.item, s.itemText);
       if (it) { log('меню: ' + (textOf(o) || String(o.className) || '?').slice(0, 30)); await pickItem(s, it); FM.modeOk = true; return; }
       try { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); document.body.click(); } catch (e) {}
@@ -145,7 +154,7 @@
       B.armChooser();
       var opened = false;
       var o = q(s.open) || openers(s)[0];
-      if (o) { log('открываю загрузку: ' + (textOf(o) || String(o.className).slice(0, 30))); click(o); await sleep(1000);
+      if (o) { log('открываю загрузку: ' + (textOf(o) || String(o.className).slice(0, 30))); click(o); await settle(1000);
         if (!B.chooserUsed()) {
           var g = gridItems(s); var idx = s.gridIndex || [];
           for (var gi = 0; gi < idx.length && !B.chooserUsed(); gi++) { if (g[idx[gi]]) { log('иконка загрузки №' + (idx[gi] + 1)); click(g[idx[gi]]); await waitFor(function () { return B.chooserUsed(); }, 2500); } }
@@ -184,7 +193,7 @@
     }
     return [];
   }
-  async function stepType(s) { var e = q(s.selectors); if (!e) fail('input', 'Нет поля ввода'); setText(e, prompt); await sleep(500); log('запрос введён'); }
+  async function stepType(s) { var e = q(s.selectors); if (!e) fail('input', 'Нет поля ввода'); setText(e, prompt); await settle(500, 120); log('запрос введён'); }
   function composerText() { var ta = q(['textarea', '[contenteditable=true]']); return ta ? (ta.value !== undefined && ta.tagName !== 'DIV' ? ta.value : txt(ta)) : ''; }
   function promptBubbles() {
     var key = (prompt || '').trim().slice(0, 40); if (!key) return 0; var n = 0;
@@ -208,8 +217,8 @@
     for (var attempt = 0; attempt < 2; attempt++) {
       var e = await waitFor(function () { var b = sendButton(s); return b && !/disabled/.test(String(b.className)) ? b : null; }, attempt ? 5000 : 20000);
       if (e) { click(e); log('нажата отправка' + (attempt ? ' (повтор)' : '')); }
-      if (await sentOk(b0)) { log('отправлено'); await sleep(1000); return; }
-      if (s.enterFallback) { pressEnter(); log('пробую Enter'); if (await sentOk(b0)) { log('отправлено через Enter'); await sleep(1000); return; } }
+      if (await sentOk(b0)) { log('отправлено'); await settle(1000); return; }
+      if (s.enterFallback) { pressEnter(); log('пробую Enter'); if (await sentOk(b0)) { log('отправлено через Enter'); await settle(1000); return; } }
     }
     log('запрос остался в поле ввода — не отправлено');
     B.saveDump(dumpPage('send-failed'));
@@ -232,7 +241,7 @@
     var rx = new RegExp(s.srcPattern, 'i');
     var end = Date.now() + (s.timeout || 300000); var lastText = ''; var stable = 0;
     while (Date.now() < end) {
-      await sleep(1500);
+      await sleep(600);
       var busy = !!q(s.busy);
       var cands = [];
       for (var i = 0; i < s.containers.length; i++) { var cs; try { cs = document.querySelectorAll(s.containers[i]); } catch (e) { continue; } if (cs.length) { var last = cs[cs.length - 1];
@@ -243,7 +252,7 @@
         var urls = [url]; (s.rewrite || []).forEach(function (rw) { var u2 = url.replace(new RegExp(rw[0]), rw[1]); if (u2 !== url) urls.unshift(u2); });
         log('картинка найдена ' + im.naturalWidth + 'x' + im.naturalHeight);
         for (var k = 0; k < urls.length; k++) { if (await deliver(urls[k])) { FM.running = false; return 'ok'; } }
-        B.resultUrl(urls[urls.length - 1]); FM.running = false; return 'ok';
+        B.resultUrl(urls.join('\n')); FM.running = false; return 'ok';
       }
       var lastMsg = null; for (var c = 0; c < s.containers.length && !lastMsg; c++) { try { var all = document.querySelectorAll(s.containers[c]); if (all.length) lastMsg = all[all.length - 1]; } catch (e) {} }
       var t = lastMsg ? txt(lastMsg) : '';
@@ -253,23 +262,39 @@
     }
     return 'timeout';
   }
+  function sendB64(url, b64, kb, how) {
+    var CH = 512 * 1024; B.resultBegin(url, b64.length);
+    for (var i = 0; i < b64.length; i += CH) B.resultChunk(b64.substring(i, i + CH));
+    B.resultEnd(); log('картинка получена (' + how + '), ' + kb + ' КБ'); return true;
+  }
+  function blobB64(blob) { return new Promise(function (res, rej) { var fr = new FileReader(); fr.onload = function () { res(String(fr.result).split(',')[1]); }; fr.onerror = rej; fr.readAsDataURL(blob); }); }
+  function canvasGrab(url) {
+    return new Promise(function (res) {
+      var im = new Image(); im.crossOrigin = 'use-credentials';
+      var t = setTimeout(function () { res(null); }, 15000);
+      im.onload = function () { clearTimeout(t); try { var c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight; c.getContext('2d').drawImage(im, 0, 0); res({ d: c.toDataURL('image/png').split(',')[1], w: im.naturalWidth }); } catch (e) { res(null); } };
+      im.onerror = function () { clearTimeout(t); res(null); }; im.src = url;
+    });
+  }
+  async function tryFetch(url, opt) {
+    try { var r = await fetch(url, opt); if (!r.ok) { log('скачивание ' + r.status); return null; } var blob = await r.blob(); if (!/^image\//.test(blob.type) && blob.size < 10000) return null; return blob; }
+    catch (e) { log('fetch не удался (' + e.message + ')'); return null; }
+  }
   async function deliver(url) {
-    try {
-      var r = await fetch(url, { credentials: 'include' }); if (!r.ok) { log('скачивание ' + r.status); return false; }
-      var blob = await r.blob(); if (!/^image\//.test(blob.type) && blob.size < 10000) return false;
-      var b64 = await new Promise(function (res, rej) { var fr = new FileReader(); fr.onload = function () { res(String(fr.result).split(',')[1]); }; fr.onerror = rej; fr.readAsDataURL(blob); });
-      var CH = 512 * 1024; B.resultBegin(url, b64.length);
-      for (var i = 0; i < b64.length; i += CH) B.resultChunk(b64.substring(i, i + CH));
-      B.resultEnd(); log('картинка скачана, ' + Math.round(blob.size / 1024) + ' КБ'); return true;
-    } catch (e) { log('fetch не удался (' + e.message + '), скачаю через приложение'); return false; }
+    var blob = await tryFetch(url, { credentials: 'include' }) || await tryFetch(url, { credentials: 'include', mode: 'cors' });
+    if (blob) return sendB64(url, await blobB64(blob), Math.round(blob.size / 1024), 'fetch');
+    var g = await canvasGrab(url);
+    if (g && g.d && g.d.length > 1000) return sendB64(url, g.d, Math.round(g.d.length * 3 / 4096), 'canvas ' + g.w + 'px');
+    return false;
   }
   FM.loggedIn = function () { var l = cfg.loggedIn || {}; return !q(l.absent || []) && !(l.absentText && q(['button', 'a'], l.absentText)); };
   async function runSteps(from) {
     for (var i = from; i < cfg.steps.length; i++) {
-      var s = cfg.steps[i]; log('шаг ' + (i + 1) + ': ' + s.do);
+      var s = cfg.steps[i]; log('шаг ' + (i + 1) + ': ' + s.do); var ts = Date.now();
       if (s.do === 'wait') await stepWait(s); else if (s.do === 'dismiss') await stepDismiss(s); else if (s.do === 'mode') await stepMode(s);
       else if (s.do === 'upload') await stepUpload(s); else if (s.do === 'type') await stepType(s); else if (s.do === 'send') await stepSend(s);
-      else if (s.do === 'result') return await stepResult(s);
+      else if (s.do === 'result') { var rr = await stepResult(s); log('⏱ ' + s.do + ' (ожидание ответа сервиса) ' + ((Date.now() - ts) / 1000).toFixed(1) + 's'); return rr; }
+      log('⏱ ' + s.do + ' ' + ((Date.now() - ts) / 1000).toFixed(1) + 's');
     }
     return 'ok';
   }
@@ -284,10 +309,10 @@
   }
   (async function () {
     try {
-      if (B.mode() === 'check') { await sleep(4000); B.checkDone(FM.loggedIn(), document.title + ' | ' + location.href); FM.running = false; return; }
-      if (B.mode() === 'dump') { await sleep(3000); B.saveDump(dumpPage('manual')); FM.running = false; return; }
+      if (B.mode() === 'check') { await settle(4000, 700); B.checkDone(FM.loggedIn(), document.title + ' | ' + location.href); FM.running = false; return; }
+      if (B.mode() === 'dump') { await settle(3000, 700); B.saveDump(dumpPage('manual')); FM.running = false; return; }
       log('старт ' + cfg.id + ' ' + location.href);
-      await sleep(1500);
+      await settle(1500, 300);
       if (!FM.loggedIn()) { if (cfg.requireLogin) fail('login', 'Вход в аккаунт не выполнен: на странице кнопка «Войти». Нажмите «Войти» в приложении.'); else B.warn('Вход не выполнен — продолжаю без входа (лимиты могут быть меньше).'); }
       var res = await runSteps(0);
       if (res !== 'ok' && FM.modeOk === false && FM.modeStep && FM.modeStep.askUserOnFail) {
