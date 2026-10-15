@@ -1,0 +1,345 @@
+{
+  "version": 1,
+  "note": "Селекторы для автоматизации чатов. Если сайт поменял вёрстку, правьте только этот файл. Каждый список проверяется по порядку, берётся первый видимый элемент. Поле text задаёт регулярное выражение по видимому тексту кнопки.",
+  "providers": [
+    {
+      "id": "qwen",
+      "title": "Qwen",
+      "loginUrl": "https://chat.qwen.ai/auth?action=signin",
+      "startUrl": "https://chat.qwen.ai/?inputFeature=image_edit",
+      "returnsImage": "Да: режим «Image Edit» (Qwen-Image-Edit) возвращает отредактированную картинку. Есть дневной лимит, без входа меньше.",
+      "loggedIn": {
+        "absent": [
+          "a[href*='/auth']",
+          "button.login-button",
+          "[class*='sign-in']"
+        ]
+      },
+      "steps": [
+        {
+          "do": "wait",
+          "selectors": [
+            "textarea.message-input-textarea",
+            "#chat-input",
+            "textarea"
+          ],
+          "timeout": 90000
+        },
+        {
+          "do": "dismiss",
+          "selectors": [
+            ".ant-drawer-open button",
+            ".ant-modal-wrap button",
+            "[role=dialog] button"
+          ],
+          "text": "^(Continue|Продолжить|Got it|Понятно|OK|Принять|Accept|Skip|Пропустить)$"
+        },
+        {
+          "do": "mode",
+          "name": "Image Edit",
+          "active": [
+            ".chat-input-feature-tag[class*='image_edit']",
+            "[class*='feature-tag'][class*='edit']",
+            "[class*='selected-feature']",
+            "[class*='input-feature'] [class*='active']"
+          ],
+          "activeText": "(Image Edit|Edit Image|Редактирование изображ|Редактировать изображ|Изменить изображ|图像编辑|图片编辑)",
+          "open": [
+            "button[class*='feature-btn']",
+            "[class*='chat-input-feature']",
+            "button[class*='plus']",
+            "[class*='input-more']",
+            "[class*='mode-select']",
+            "button[aria-label*='more' i]",
+            "button[aria-label*='feature' i]",
+            "button[aria-label*='Ещё']"
+          ],
+          "item": [
+            "[role=menuitem]",
+            "[class*='dropdown'] li",
+            "[class*='menu'] li",
+            "[class*='feature'] button",
+            "[class*='feature-item']",
+            "button",
+            "li",
+            "span"
+          ],
+          "itemText": "^(Image Edit|Edit Image|Image Editing|Редактирование изображения|Редактировать изображение|Изменить изображение|图像编辑|图片编辑)$",
+          "fallbackText": "^(Create Image|Image Generation|Generate Image|Создать изображение|Генерация изображений|图像生成|生成图像)$",
+          "optional": false
+        },
+        {
+          "do": "upload",
+          "open": [
+            "button[class*='upload']",
+            "[class*='file-upload']",
+            "[class*='chat-input-upload']",
+            "button[aria-label*='upload' i]",
+            "button[aria-label*='Загруз']",
+            "button[class*='attach']",
+            "[class*='mode-select-plus']"
+          ],
+          "item": [
+            "[role=menuitem]",
+            "[class*='dropdown'] li",
+            "[class*='menu'] li",
+            "li",
+            "button"
+          ],
+          "itemText": "^(Upload Image|Upload Images|Upload|Загрузить изображение|Загрузить|上传图片|上传|Image|Изображение|Фото)$",
+          "input": [
+            "input[type=file][accept*='image']",
+            "input[type=file]"
+          ],
+          "doneWhen": [
+            "[class*='file-item'] img",
+            "[class*='upload'] img",
+            "[class*='image-preview']",
+            "[class*='file-card']",
+            "img[src^='blob:']"
+          ]
+        },
+        {
+          "do": "type",
+          "selectors": [
+            "textarea.message-input-textarea",
+            "#chat-input",
+            "textarea"
+          ]
+        },
+        {
+          "do": "send",
+          "selectors": [
+            "button.send-button",
+            "#send-message-button",
+            "button[class*='send']"
+          ],
+          "enterFallback": true
+        },
+        {
+          "do": "dismiss",
+          "selectors": [
+            ".ant-drawer-open button",
+            ".ant-modal-wrap button"
+          ],
+          "text": "^(Continue|Продолжить|OK)$",
+          "resend": true
+        },
+        {
+          "do": "result",
+          "containers": [
+            ".response-message-content",
+            "[class*='response-message']",
+            "[class*='chat-response']",
+            "[class*='message-content']"
+          ],
+          "srcPattern": "(cdn\\.qwenlm\\.ai|alicdn\\.com|aliyuncs\\.com|qwen|wanx|^blob:|^data:image)",
+          "busy": [
+            "button.stop-button",
+            "[class*='stop-button']",
+            "[class*='generating']",
+            "[class*='loading-image']"
+          ],
+          "rewrite": [
+            [
+              "\\?x-oss-process=[^#]*$",
+              ""
+            ]
+          ],
+          "timeout": 300000
+        }
+      ]
+    },
+    {
+      "id": "alice",
+      "title": "Алиса AI",
+      "loginUrl": "https://passport.yandex.ru/auth?retpath=https%3A%2F%2Falice.yandex.ru%2F",
+      "startUrl": "https://alice.yandex.ru/",
+      "returnsImage": "Да: Алиса AI редактирует загруженное фото прямо в чате (JPEG/PNG до 20 МБ). В часы нагрузки генерация картинок без Алисы Плюс может быть недоступна.",
+      "loggedIn": {
+        "absent": [
+          "[data-testid='login-button']"
+        ]
+      },
+      "steps": [
+        {
+          "do": "wait",
+          "selectors": [
+            "[data-testid='inputbase-textarea']",
+            "textarea.AliceInput-Textarea",
+            "textarea"
+          ],
+          "timeout": 90000
+        },
+        {
+          "do": "dismiss",
+          "selectors": [
+            "[role=dialog] button",
+            "[class*='Modal'] button"
+          ],
+          "text": "^(Понятно|Закрыть|Хорошо|Принять)$"
+        },
+        {
+          "do": "upload",
+          "open": [
+            "[data-testid='InputControls-More-Button']",
+            "button[aria-label*='Прикреп']"
+          ],
+          "item": [
+            "[data-testid='button-gallery-button']",
+            "[data-testid='button-file-button']",
+            "button"
+          ],
+          "itemText": "^(Фото|Файлы)$",
+          "input": [
+            "input[type=file][accept*='image']",
+            "input[type=file]"
+          ],
+          "doneWhen": [
+            "[class*='Attachment'] img",
+            "[class*='InputFile']",
+            "[class*='Preview'] img",
+            "[class*='attachment']",
+            "img[src^='blob:']"
+          ]
+        },
+        {
+          "do": "type",
+          "selectors": [
+            "[data-testid='inputbase-textarea']",
+            "textarea.AliceInput-Textarea",
+            "textarea"
+          ]
+        },
+        {
+          "do": "send",
+          "selectors": [
+            "[data-testid='button-send-button']",
+            "[data-testid*='send' i]",
+            "button[aria-label*='Отправ']",
+            "button[class*='Send']"
+          ],
+          "enterFallback": true
+        },
+        {
+          "do": "result",
+          "containers": [
+            "[class*='MessageBubble']",
+            "[class*='Message_alice']",
+            "[class*='AliceMessage']",
+            "[class*='Message']"
+          ],
+          "srcPattern": "(avatars\\.mds\\.yandex\\.net|yandex\\.net|yastatic|^blob:|^data:image)",
+          "busy": [
+            "[data-testid*='stop' i]",
+            "[class*='Typing']",
+            "[class*='Generating']",
+            "[class*='Loader']"
+          ],
+          "rewrite": [
+            [
+              "(avatars\\.mds\\.yandex\\.net/get-[^/]+/[^/]+/[^/?]+)/[^/?]+",
+              "$1/orig"
+            ]
+          ],
+          "timeout": 300000
+        }
+      ]
+    },
+    {
+      "id": "giga",
+      "title": "ГигаЧат",
+      "loginUrl": "https://giga.chat/",
+      "startUrl": "https://giga.chat/",
+      "returnsImage": "Да: ГигаЧат с Kandinsky 6.0 Image умеет редактировать загруженное фото (удалить или заменить объект, ретушь, стиль). Иногда отвечает только текстом, тогда это показывается как ошибка.",
+      "loggedIn": {
+        "absent": [
+          "[class*='GdprBanner']+button",
+          "button[class*='login']"
+        ],
+        "absentText": "^Войти$"
+      },
+      "steps": [
+        {
+          "do": "dismiss",
+          "selectors": [
+            "button[class*='AcceptButton']",
+            "[class*='GdprBanner'] button"
+          ],
+          "text": "^(Принять)$"
+        },
+        {
+          "do": "wait",
+          "selectors": [
+            "textarea",
+            "[contenteditable=true]"
+          ],
+          "timeout": 90000
+        },
+        {
+          "do": "upload",
+          "open": [
+            "button[aria-label*='Прикреп']",
+            "button[aria-label*='Загруз']",
+            "[class*='Attach'] button",
+            "button[class*='Attach']",
+            "[class*='attach']",
+            "[class*='Clip']"
+          ],
+          "item": [
+            "[role=menuitem]",
+            "li",
+            "button"
+          ],
+          "itemText": "^(Изображение|Фото|Загрузить|Загрузить изображение|С устройства)$",
+          "input": [
+            "input[type=file][accept*='image']",
+            "input[type=file]"
+          ],
+          "doneWhen": [
+            "[class*='Attachment'] img",
+            "[class*='Preview'] img",
+            "[class*='FileCard']",
+            "[class*='attachment']",
+            "img[src^='blob:']"
+          ]
+        },
+        {
+          "do": "type",
+          "selectors": [
+            "textarea",
+            "[contenteditable=true]"
+          ]
+        },
+        {
+          "do": "send",
+          "selectors": [
+            "button[aria-label*='Отправ']",
+            "button[class*='Send']",
+            "[class*='SendButton']",
+            "button[type=submit]"
+          ],
+          "enterFallback": true
+        },
+        {
+          "do": "result",
+          "containers": [
+            "[class*='MessageBot']",
+            "[class*='message-bot']",
+            "[class*='Assistant']",
+            "[class*='Message']"
+          ],
+          "srcPattern": "(giga|sber|kandinsky|fusionbrain|^blob:|^data:image)",
+          "busy": [
+            "button[aria-label*='Останов']",
+            "[class*='Stop']",
+            "[class*='Typing']",
+            "[class*='Generating']"
+          ],
+          "rewrite": [],
+          "timeout": 300000
+        }
+      ]
+    }
+  ]
+}

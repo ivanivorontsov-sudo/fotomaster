@@ -1,0 +1,4 @@
+-keepclassmembers class org.ivanivorontsov.fotomaster.ai.AiEngine$Bridge { @android.webkit.JavascriptInterface <methods>; }
+-keepattributes JavascriptInterface
+-keep class com.google.mlkit.** { *; }
+-dontwarn com.google.mlkit.**

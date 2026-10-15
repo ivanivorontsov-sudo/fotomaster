@@ -1,0 +1,164 @@
+[
+ {
+  "name": "qwen-image-edit",
+  "st": {
+   "armed": false,
+   "used": true,
+   "result": 5368,
+   "fail": null,
+   "warn": [],
+   "url": null,
+   "srcUrl": "http://127.0.0.1:8799/qwen-out.png",
+   "sent": "улучши фото",
+   "sentMode": "image_edit",
+   "sentFile": 8229
+  },
+  "logs": [
+   "0.0s старт qwen http://127.0.0.1:8799/qwen",
+   "0.0s шаг 1: wait",
+   "0.0s поле ввода найдено",
+   "0.0s шаг 2: dismiss",
+   "0.0s шаг 3: mode",
+   "0.9s включаю режим: Image Edit",
+   "2.1s шаг 4: upload",
+   "2.1s открываю загрузку: 📎",
+   "[test] chooser intercepted",
+   "3.0s фото передано через окно выбора файла",
+   "3.0s фото прикреплено",
+   "4.5s шаг 5: type",
+   "5.0s запрос введён",
+   "5.0s шаг 6: send",
+   "5.0s отправлено",
+   "6.5s шаг 7: dismiss",
+   "6.5s шаг 8: result",
+   "8.0s картинка найдена 1024x768",
+   "8.0s картинка скачана, 4 КБ"
+  ]
+ },
+ {
+  "name": "qwen-fallback-create-image",
+  "st": {
+   "armed": false,
+   "used": true,
+   "result": 5368,
+   "fail": null,
+   "warn": [
+    "Режим «Image Edit» не найден, использован «Create Image»"
+   ],
+   "url": null,
+   "srcUrl": "http://127.0.0.1:8799/qwen-out.png",
+   "sent": "улучши фото",
+   "sentMode": "t2i",
+   "sentFile": 8229
+  },
+  "logs": [
+   "0.0s старт qwen http://127.0.0.1:8799/qwen?noEdit=1&allowNoMode=1",
+   "0.0s шаг 1: wait",
+   "0.0s поле ввода найдено",
+   "0.0s шаг 2: dismiss",
+   "0.0s шаг 3: mode",
+   "3.3s ВНИМАНИЕ: «Image Edit» не найден, включаю «Create Image» (картинка может перерисоваться сильнее)",
+   "WARN Режим «Image Edit» не найден, использован «Create Image»",
+   "4.5s шаг 4: upload",
+   "4.5s открываю загрузку: 📎",
+   "[test] chooser intercepted",
+   "5.4s фото передано через окно выбора файла",
+   "5.4s фото прикреплено",
+   "6.9s шаг 5: type",
+   "7.4s запрос введён",
+   "7.4s шаг 6: send",
+   "7.4s отправлено",
+   "8.9s шаг 7: dismiss",
+   "8.9s шаг 8: result",
+   "10.4s картинка найдена 1024x768",
+   "10.4s картинка скачана, 4 КБ"
+  ]
+ },
+ {
+  "name": "qwen-no-mode-button",
+  "st": {
+   "armed": false,
+   "used": false,
+   "result": null,
+   "fail": "mode: Не нашёл кнопку режима «Image Edit». Сайт мог измениться: обновите селекторы в providers.json",
+   "warn": [],
+   "url": null
+  },
+  "logs": [
+   "0.0s старт qwen http://127.0.0.1:8799/qwen?noEdit=1&noGen=1&allowNoMode=1",
+   "0.0s шаг 1: wait",
+   "0.0s поле ввода найдено",
+   "0.0s шаг 2: dismiss",
+   "0.0s шаг 3: mode",
+   "4.8s ОШИБКА mode: Не нашёл кнопку режима «Image Edit». Сайт мог измениться: обновите селекторы в providers.json"
+  ]
+ },
+ {
+  "name": "qwen-text-only-answer",
+  "st": {
+   "armed": false,
+   "used": true,
+   "result": null,
+   "fail": "text: Сервис ответил текстом без картинки: Извините, я не могу редактировать изображения.",
+   "warn": [],
+   "url": null,
+   "sent": "улучши фото",
+   "sentMode": "image_edit",
+   "sentFile": 8229
+  },
+  "logs": [
+   "0.0s старт qwen http://127.0.0.1:8799/qwen?reply=text",
+   "0.0s шаг 1: wait",
+   "0.0s поле ввода найдено",
+   "0.0s шаг 2: dismiss",
+   "0.0s шаг 3: mode",
+   "0.9s включаю режим: Image Edit",
+   "2.1s шаг 4: upload",
+   "2.1s открываю загрузку: 📎",
+   "[test] chooser intercepted",
+   "3.0s фото передано через окно выбора файла",
+   "3.0s фото прикреплено",
+   "4.5s шаг 5: type",
+   "5.0s запрос введён",
+   "5.0s шаг 6: send",
+   "5.0s отправлено",
+   "6.5s шаг 7: dismiss",
+   "6.5s шаг 8: result",
+   "15.5s жду ответ…",
+   "23.0s ОШИБКА text: Сервис ответил текстом без картинки: Извините, я не могу редактировать изображения."
+  ]
+ },
+ {
+  "name": "alice",
+  "st": {
+   "armed": false,
+   "used": true,
+   "result": 5368,
+   "fail": null,
+   "warn": [],
+   "url": null,
+   "srcUrl": "http://127.0.0.1:8799/get-shedevrum/1/abc/orig",
+   "sent": "улучши фото",
+   "sentFile": 8229
+  },
+  "logs": [
+   "0.0s старт alice http://127.0.0.1:8799/alice",
+   "0.0s шаг 1: wait",
+   "0.0s поле ввода найдено",
+   "0.0s шаг 2: dismiss",
+   "0.0s шаг 3: upload",
+   "0.0s открываю загрузку: Меню",
+   "0.9s пункт меню: Фото",
+   "[test] chooser intercepted",
+   "1.3s фото передано через окно выбора файла",
+   "1.3s фото прикреплено",
+   "2.8s шаг 4: type",
+   "3.3s запрос введён",
+   "3.3s шаг 5: send",
+   "3.3s отправлено",
+   "4.8s шаг 6: result",
+   "6.3s картинка найдена 1024x768",
+   "6.3s картинка скачана, 4 КБ"
+  ]
+ }
+]
