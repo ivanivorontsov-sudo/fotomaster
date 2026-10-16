@@ -15,6 +15,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,8 +39,12 @@ fun HomeScreen(vm: EditorViewModel, onOpen: () -> Unit, onAccounts: () -> Unit) 
     val msg by vm.message.collectAsState()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) vm.openUri(uri, onOpen) }
     var confirmDelete by remember { mutableStateOf<org.ivanivorontsov.fotomaster.io.ProjectInfo?>(null) }
+    var showAbout by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().systemBarsPadding().imePadding().padding(16.dp)) {
-        Text("ФотоМастер", fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("ФотоМастер", fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            IconButton(onClick = { showAbout = true }) { Icon(Icons.Default.Info, "О программе") }
+        }
         Text("Без рекламы, подписок и водяных знаков. Всё на телефоне.", color = Color.Gray, fontSize = 14.sp)
         Spacer(Modifier.height(16.dp))
         Button(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, modifier = Modifier.fillMaxWidth().height(64.dp), shape = RoundedCornerShape(16.dp)) {
@@ -64,7 +71,31 @@ fun HomeScreen(vm: EditorViewModel, onOpen: () -> Unit, onAccounts: () -> Unit) 
         AlertDialog(onDismissRequest = { confirmDelete = null }, title = { Text("Удалить проект?") }, text = { Text("Удаляется только копия в приложении, оригинал в галерее останется.") },
             confirmButton = { TextButton({ vm.deleteProject(p); confirmDelete = null }) { Text("Удалить") } }, dismissButton = { TextButton({ confirmDelete = null }) { Text("Отмена") } })
     }
+    if (showAbout) AboutDialog { showAbout = false }
     BusyAndMessages(busy, msg) { vm.message.value = null }
+}
+
+@Composable
+fun AboutDialog(onClose: () -> Unit) {
+    AlertDialog(onDismissRequest = onClose, confirmButton = { TextButton(onClose) { Text("Закрыть") } },
+        title = { Text("О программе") },
+        text = {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+                for ((h, t) in AboutTexts.sections) {
+                    Text(h, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
+                    Text(t, fontSize = 13.sp)
+                }
+            }
+        })
+}
+
+object AboutTexts {
+    val sections = listOf(
+        "ФотоМастер" to "Тестовая версия. © 2026 Иван Воронцов. Все права защищены. Бесплатное использование для личных некоммерческих целей.",
+        "Конфиденциальность" to "Фото и проекты хранятся только на телефоне. Приложение не собирает и не передаёт разработчику никаких данных: нет аналитики, рекламы и учётных записей. Фото отправляется в нейросеть только после вашего нажатия, напрямую на сайт выбранного сервиса, и обрабатывается по его правилам. Вход в сервисы выполняется на их сайтах, приложение не видит паролей; cookies входа хранятся только во встроенном браузере на телефоне. Распознавание лиц и людей (Google ML Kit) работает на устройстве; библиотека передаёт в Google технические сведения о своей работе: модель устройства, версию системы, идентификатор установки и показатели скорости.",
+        "Сторонние сервисы" to "Qwen — товарный знак Alibaba Group. Алиса и Яндекс — товарные знаки ООО «Яндекс». GigaChat (ГигаЧат) и Сбер — товарные знаки ПАО Сбербанк. ФотоМастер не связан с этими компаниями и не одобрен ими. Пользуясь сервисом, вы принимаете его собственные условия использования.",
+        "Лицензии" to "Android Jetpack (AndroidX), Jetpack Compose, Material Components, Material Icons, Kotlin и kotlinx.coroutines — Apache License 2.0, © The Android Open Source Project, Google LLC, JetBrains s.r.o.\nJSON-java (org.json) — Public Domain.\nGoogle ML Kit (распознавание лиц, сегментация) — ML Kit Terms of Service, © Google LLC.\nТекст Apache License 2.0: apache.org/licenses/LICENSE-2.0"
+    )
 }
 
 @Composable
