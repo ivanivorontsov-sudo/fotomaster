@@ -72,29 +72,30 @@ enum class Screen { HOME, EDITOR, ACCOUNTS }
 fun App(vm: EditorViewModel) {
     MaterialTheme(colorScheme = darkColorScheme(primary = Accent, secondary = Color(0xFFFFB74D), background = Color(0xFF0E0F12), surface = Color(0xFF16181D))) {
         var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
-        var showWebManual by remember { mutableStateOf(false) }
-        val needUser by vm.ai.needUser.collectAsState()
-        val showWeb = showWebManual || needUser != null
-        var loginUrl by remember { mutableStateOf<String?>(null) }
+        var showWeb by remember { mutableStateOf(false) }
+        val offer by vm.ai.offerImage.collectAsState()
+        val pick by vm.ai.pickRequest.collectAsState()
+        val picker = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { u -> vm.ai.deliverPicked(u) }
+        LaunchedEffect(pick) { if (pick > 0) picker.launch("image/*") }
+        val openSite: (org.ivanivorontsov.fotomaster.ai.AiProvider?) -> Unit = { p -> if (p != null) vm.ai.open(p); showWeb = true }
         val pending by vm.pendingOpen.collectAsState()
         LaunchedEffect(pending) { pending?.let { u -> vm.pendingOpen.value = null; vm.openUri(u) { screen = Screen.EDITOR } } }
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Box(Modifier.fillMaxSize()) {
                 AndroidView(factory = { c -> WebView(c).also { vm.ai.attach(it) } },
-                    modifier = Modifier.fillMaxSize().then(if (loginUrl != null || showWeb) Modifier.statusBarsPadding().imePadding() else Modifier).zIndex(if (showWeb || loginUrl != null) 2f else 0f).alpha(if (showWeb || loginUrl != null) 1f else 0.01f))
+                    modifier = Modifier.fillMaxSize().then(if (showWeb) Modifier.statusBarsPadding().imePadding() else Modifier).zIndex(if (showWeb) 2f else 0f).alpha(if (showWeb) 1f else 0f))
                 Box(Modifier.fillMaxSize().zIndex(1f)) {
                     when (screen) {
                         Screen.HOME -> HomeScreen(vm, onOpen = { screen = Screen.EDITOR }, onAccounts = { screen = Screen.ACCOUNTS })
-                        Screen.EDITOR -> EditorScreen(vm, onBack = { vm.refreshProjects(); screen = Screen.HOME }, showWeb = showWeb, onToggleWeb = { showWebManual = !showWebManual }, onAccounts = { screen = Screen.ACCOUNTS }, onLogin = { url -> loginUrl = url; vm.ai.webView?.loadUrl(url) })
-                        Screen.ACCOUNTS -> AccountsScreen(vm, onBack = { screen = if (vm.project != null) Screen.EDITOR else Screen.HOME }, onLogin = { url -> loginUrl = url; vm.ai.webView?.loadUrl(url) })
+                        Screen.EDITOR -> EditorScreen(vm, onBack = { vm.refreshProjects(); screen = Screen.HOME }, showWeb = showWeb, onToggleWeb = { showWeb = !showWeb }, onAccounts = { screen = Screen.ACCOUNTS }, onOpenSite = { openSite(null) })
+                        Screen.ACCOUNTS -> AccountsScreen(vm, onBack = { screen = if (vm.project != null) Screen.EDITOR else Screen.HOME }, onOpen = { p -> openSite(p) })
                     }
                 }
-                if (loginUrl != null) LoginOverlay(onDone = { loginUrl = null; android.webkit.CookieManager.getInstance().flush(); vm.ai.webView?.loadUrl("about:blank"); if (screen == Screen.EDITOR) vm.checkLogin() })
-                if (showWeb) WebOverlayBar(needUser, onHide = { showWebManual = false; if (needUser != null) vm.ai.cancel() }, onContinue = { vm.ai.continueAfterUser() })
+                if (showWeb) SiteBar(vm.ai.provider, onClose = { vm.ai.close(); showWeb = false })
+                offer?.let { OfferDialog(onAccept = { vm.ai.acceptOffer(); showWeb = false }, onDecline = { vm.ai.declineOffer() }) }
             }
-            BackHandler(enabled = loginUrl != null || showWeb || screen != Screen.HOME) {
-                when { loginUrl != null -> { if (vm.ai.webView?.canGoBack() == true) vm.ai.webView?.goBack() else loginUrl = null }
-                    showWeb -> { showWebManual = false; if (needUser != null) vm.ai.cancel() }
+            BackHandler(enabled = showWeb || screen != Screen.HOME) {
+                when { showWeb -> { if (vm.ai.webView?.canGoBack() == true) vm.ai.webView?.goBack() else { vm.ai.close(); showWeb = false } }
                     screen == Screen.ACCOUNTS -> screen = if (vm.project != null) Screen.EDITOR else Screen.HOME
                     else -> { vm.refreshProjects(); screen = Screen.HOME } }
             }

@@ -17,27 +17,27 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.webkit.CookieManager
-import org.ivanivorontsov.fotomaster.ai.AiState
 import org.ivanivorontsov.fotomaster.ai.Providers
 import org.ivanivorontsov.fotomaster.core.BgMode
 import org.ivanivorontsov.fotomaster.io.BitmapIo
 
 @Composable
-fun AccountsScreen(vm: EditorViewModel, onBack: () -> Unit, onLogin: (String) -> Unit) {
-    var checks by remember { mutableStateOf(mapOf<String, String>()) }
+fun AccountsScreen(vm: EditorViewModel, onBack: () -> Unit, onOpen: (org.ivanivorontsov.fotomaster.ai.AiProvider) -> Unit) {
+    var notes by remember { mutableStateOf(mapOf<String, String>()) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     Column(Modifier.fillMaxSize().systemBarsPadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }; Text("Нейросети", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
-        Text("Войдите один раз в свой аккаунт на сайте сервиса. Вход сохраняется в приложении (cookies WebView), ключи API не нужны. Логин и пароль вы вводите прямо на сайте, приложение их не читает и не хранит.", fontSize = 13.sp, color = Color.Gray)
+        Text("ФотоМастер просто открывает сайт сервиса во встроенном браузере. Входите, прикрепляйте фото и нажимайте «Отправить» вы сами — приложение ничего не делает на сайте за вас и не читает страницу. Пароли вводятся прямо на сайте, приложение их не видит.", fontSize = 13.sp, color = Color.Gray)
         vm.providers.forEach { p ->
             Card(Modifier.fillMaxWidth().padding(top = 12.dp)) {
                 Column(Modifier.padding(12.dp)) {
                     Text(p.title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text(p.returnsImage, fontSize = 12.sp, color = Color.LightGray)
-                    checks[p.id]?.let { Text(it, fontSize = 12.sp, color = Accent) }
+                    Text(p.hint, fontSize = 12.sp, color = Color.LightGray)
+                    notes[p.id]?.let { Text(it, fontSize = 12.sp, color = Accent) }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Button({ onLogin(p.loginUrl) }) { Text("Войти") }
-                        OutlinedButton({ checks = checks + (p.id to "Проверяю…"); vm.ai.onCheck = { ok, info -> checks = checks + (p.id to (if (ok) "✓ Вход выполнен" else "✗ Не вошли") + " — " + info.take(60)) }; vm.ai.check(p) }) { Text("Проверить") }
-                        TextButton({ clearCookies(p.startUrl); checks = checks + (p.id to "Выход выполнен (cookies удалены)") }) { Text("Выйти") }
+                        Button({ onOpen(p) }) { Text("Открыть сайт") }
+                        if (p.terms.isNotBlank()) TextButton({ runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(p.terms))) } }) { Text("Условия") }
+                        TextButton({ clearCookies(p.startUrl); notes = notes + (p.id to "Выход выполнен (cookies удалены)") }) { Text("Выйти") }
                     }
                 }
             }
@@ -57,25 +57,27 @@ private fun clearCookies(url: String) {
 }
 
 @Composable
-fun LoginOverlay(onDone: () -> Unit) {
-    Box(Modifier.fillMaxSize().systemBarsPadding().imePadding().padding(8.dp), contentAlignment = Alignment.BottomCenter) {
-        Button(onDone, Modifier.fillMaxWidth()) { Text("Готово — я вошёл") }
+fun SiteBar(provider: org.ivanivorontsov.fotomaster.ai.AiProvider?, onClose: () -> Unit) {
+    var showHint by remember { mutableStateOf(true) }
+    Box(Modifier.fillMaxSize().systemBarsPadding().imePadding().padding(8.dp)) {
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth(), horizontalAlignment = Alignment.End) {
+            if (showHint && provider != null) Card(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                Column(Modifier.padding(10.dp)) {
+                    Text("Запрос скопирован. ${provider.hint} Готовую картинку долго нажмите и выберите «Взять в ФотоМастер».", fontSize = 13.sp)
+                    TextButton({ showHint = false }) { Text("Понятно") }
+                }
+            }
+            FilledTonalButton(onClose) { Text("Закрыть сайт") }
+        }
     }
 }
 
 @Composable
-fun WebOverlayBar(needUser: String?, onHide: () -> Unit, onContinue: () -> Unit) {
-    Box(Modifier.fillMaxSize().systemBarsPadding().imePadding().padding(8.dp)) {
-        if (needUser != null) Card(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-            Column(Modifier.padding(12.dp)) {
-                Text(needUser, fontSize = 14.sp)
-                Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onContinue, Modifier.weight(1f)) { Text("Продолжить") }
-                    OutlinedButton(onHide) { Text("Отмена") }
-                }
-            }
-        } else FilledTonalButton(onHide, Modifier.align(Alignment.TopEnd)) { Text("Скрыть окно сайта") }
-    }
+fun OfferDialog(onAccept: () -> Unit, onDecline: () -> Unit) {
+    AlertDialog(onDismissRequest = onDecline, title = { Text("Взять в ФотоМастер?") },
+        text = { Text("Эта картинка будет добавлена во вкладку «ИИ-промпт» рядом с оригиналом.") },
+        confirmButton = { Button(onAccept) { Text("Взять в ФотоМастер") } },
+        dismissButton = { TextButton(onDecline) { Text("Отмена") } })
 }
 
 @Composable

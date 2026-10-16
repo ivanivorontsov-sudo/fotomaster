@@ -6,7 +6,6 @@ import android.webkit.CookieManager
 import android.webkit.WebView
 import androidx.test.core.app.ApplicationProvider
 import org.ivanivorontsov.fotomaster.ai.AiEngine
-import org.ivanivorontsov.fotomaster.ai.AiState
 import org.ivanivorontsov.fotomaster.ai.NativeDownload
 import org.ivanivorontsov.fotomaster.ai.Providers
 import org.junit.Assert.assertEquals
@@ -53,28 +52,24 @@ class NativeDownloadTest {
         } finally { s.stop() }
     }
 
-    @Test fun resultUrlFromBridgeThreadNeverTouchesWebViewOffMain() {
+    @Test fun userAcceptedImageIsImportedOnlyAfterConfirmation() {
         val seen = ConcurrentHashMap<String, String>(); val body = png(736, 1440); val s = server(body, seen)
         try {
             val ctx = ApplicationProvider.getApplicationContext<android.app.Application>()
             val base = "http://127.0.0.1:${s.port}"
             val engine = AiEngine(ctx); val wv = WebView(ctx); engine.attach(wv)
             CookieManager.getInstance().setCookie(base, "Session_id=abc")
-            val alice = Providers.load(ctx).first { it.id == "alice" }
-            engine.run(alice, Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888), "сделай ещё смешнее")
-            val bridge = engine.Bridge()
-            var err: Throwable? = null
-            val t = Thread { try { bridge.resultUrl("$base/get-shedevrum/1/abc/orig\n$base/missing") } catch (e: Throwable) { err = e } }
-            t.start(); t.join()
-            assertEquals(null, err)
+            engine.open(Providers.load(ctx).first { it.id == "alice" })
+            engine.offerImage.value = "$base/get-shedevrum/1/abc/orig"
+            assertEquals(null, engine.imported.value)
+            engine.acceptOffer()
             val end = System.currentTimeMillis() + 15000
-            while (engine.state.value !is AiState.Done && engine.state.value !is AiState.Failed && System.currentTimeMillis() < end) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(50) }
-            val st = engine.state.value
-            assertTrue("$st", st is AiState.Done)
-            assertEquals(736, (st as AiState.Done).bitmap.width)
+            while (engine.imported.value == null && System.currentTimeMillis() < end) { shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(50) }
+            val im = engine.imported.value
+            assertTrue(im != null)
+            assertEquals(736, im!!.bitmap.width); assertEquals("Алиса AI", im.providerTitle)
             assertEquals("Session_id=abc", seen["cookie"])
-            assertTrue(seen["user-agent"].orEmpty().isNotEmpty())
-            assertTrue(seen["referer"].orEmpty().contains("alice"))
+            engine.offerImage.value = "$base/x"; engine.declineOffer(); assertEquals(null, engine.offerImage.value)
         } finally { s.stop() }
     }
 }

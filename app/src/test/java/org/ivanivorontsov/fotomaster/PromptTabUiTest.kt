@@ -9,7 +9,6 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.core.app.ApplicationProvider
-import org.ivanivorontsov.fotomaster.ai.LoginState
 import org.ivanivorontsov.fotomaster.ui.App
 import org.ivanivorontsov.fotomaster.ui.EditorViewModel
 import org.ivanivorontsov.fotomaster.ui.PromptTab
@@ -47,7 +46,7 @@ class PromptTabUiTest {
 
     private fun host(vm: EditorViewModel, logins: MutableList<String>) = rule.setContent {
         MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Color(0xFF0E0F12), surface = Color(0xFF16181D))) {
-            Surface(Modifier.fillMaxSize()) { PromptTab(vm, { logins.add(it) }, false, {}) }
+            Surface(Modifier.fillMaxSize()) { PromptTab(vm, { logins.add(vm.prompt.providerId) }) }
         }
     }
 
@@ -60,21 +59,25 @@ class PromptTabUiTest {
         rule.onNodeWithTag("provider_alice").performScrollTo().performClick()
         assertEquals("alice", v.prompt.providerId)
         assertEquals("alice", vm().prompt.providerId)
-        rule.onNodeWithText("Сгенерировать в Алиса AI").assertExists()
+        rule.onNodeWithText("Открыть Алиса AI").assertExists()
     }
 
-    @Test fun inlineLoginWhenLoggedOut() {
-        val v = vm(); v.prompt.selectProvider("giga"); v.prompt.setLogin("giga", LoginState.LOGGED_OUT)
-        val logins = mutableListOf<String>(); host(v, logins)
-        rule.onNodeWithText("Вход в ГигаЧат не выполнен").assertExists()
-        rule.onNodeWithTag("btn_login").performClick()
-        assertEquals(listOf("https://giga.chat/"), logins)
+    @Test fun openButtonOnlyOpensSiteAndCopiesPrompt() {
+        val v = vm(); v.prompt.selectProvider("giga"); v.prompt.updatePrompt("сделай ярче")
+        val opened = mutableListOf<String>(); host(v, opened)
+        rule.onNodeWithTag("ai_howto").assertExists()
+        rule.onNodeWithTag("btn_copy").assertExists()
+        rule.onNodeWithTag("btn_import").assertExists()
+        rule.onNodeWithTag("btn_generate").performClick()
+        assertEquals(listOf("giga"), opened)
+        val cm = ApplicationProvider.getApplicationContext<android.content.Context>().getSystemService(android.content.ClipboardManager::class.java)
+        assertEquals("сделай ярче", cm.primaryClip!!.getItemAt(0).text.toString())
+        assertEquals(0, v.prompt.results.size)
     }
 
     @Test fun resultShownImmediatelyWithActionsHistoryAndScreenshot() {
         val v = vm()
         v.prompt.selectProvider("qwen"); v.prompt.updatePrompt("Сделай фото в стиле заката")
-        v.prompt.setLogin("qwen", LoginState.LOGGED_IN)
         v.prompt.startRequest(); v.prompt.addResult("Qwen", scene(800, 600, false), 800, 600)
         v.prompt.startRequest(); val r = v.prompt.addResult("Qwen", scene(800, 600, true), 800, 600)
         v.putPromptBefore(r.id, scene(800, 600, false))
@@ -109,7 +112,6 @@ class PromptTabUiTest {
         rule.onNodeWithTag("ai_error").assertExists()
         rule.onNodeWithTag("provider_alice").performScrollTo().performClick()
         rule.onNodeWithTag("ai_error").assertDoesNotExist()
-        assertEquals(org.ivanivorontsov.fotomaster.ai.AiState.Idle, v.ai.state.value)
         v.prompt.showError("Алиса", "y", emptyList()); v.prompt.resetForProject("p2")
         assertEquals(null, v.prompt.error)
         assertEquals(0, v.prompt.results.size)

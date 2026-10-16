@@ -27,16 +27,16 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.ivanivorontsov.fotomaster.ai.AiState
-import org.ivanivorontsov.fotomaster.ai.LoginState
 import org.ivanivorontsov.fotomaster.ai.PromptSession
 import org.ivanivorontsov.fotomaster.core.BgMode
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun PromptTab(vm: EditorViewModel, onLogin: (String) -> Unit, showWeb: Boolean, onToggleWeb: () -> Unit) {
+fun PromptTab(vm: EditorViewModel, onOpenSite: () -> Unit) {
     val tick by vm.promptTick.collectAsState()
-    val st by vm.ai.state.collectAsState()
+    val aiStatus by vm.ai.status.collectAsState()
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val importer = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.GetContent()) { u -> if (u != null) vm.importResult(u) }
     val current by vm.rendered.collectAsState()
     val s = vm.prompt
     var text by remember(tick == 0) { mutableStateOf(s.prompt) }
@@ -45,8 +45,7 @@ fun PromptTab(vm: EditorViewModel, onLogin: (String) -> Unit, showWeb: Boolean, 
     val vt = remember { ViewTransform() }
     val provider = vm.providers.first { it.id == s.providerId }
     val selected = remember(tick) { s.selected }
-    val running = st is AiState.Running
-    androidx.compose.runtime.LaunchedEffect(provider.id) { vm.ai.prewarm(provider) }
+    val running = false
     Column(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxWidth().background(Color(0xFF08090B)).testTag("prompt_preview")) {
             if (selected != null) {
@@ -61,21 +60,14 @@ fun PromptTab(vm: EditorViewModel, onLogin: (String) -> Unit, showWeb: Boolean, 
                 Slider(split, { split = it }, Modifier.align(Alignment.BottomCenter).padding(horizontal = 24.dp))
             } else {
                 ImageCanvas(current, null, false, null, vt, NoHandler)
-                Text(if (running) "" else "Результат появится здесь, рядом с оригиналом", Modifier.align(Alignment.BottomCenter).padding(10.dp).background(Color(0xAA000000)).padding(6.dp), fontSize = 12.sp)
-            }
-            if (running) Box(Modifier.fillMaxSize().background(Color(0x66000000)), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator()
-                    Text("${(st as AiState.Running).provider}: генерирую…", Modifier.padding(top = 8.dp))
-                    Text((st as AiState.Running).log.lastOrNull() ?: "", fontSize = 11.sp, color = Color.LightGray, modifier = Modifier.padding(horizontal = 24.dp))
-                }
+                Text("Результат из нейросети появится здесь, рядом с оригиналом", Modifier.align(Alignment.BottomCenter).padding(10.dp).background(Color(0xAA000000)).padding(6.dp), fontSize = 12.sp)
             }
         }
         Surface(color = MaterialTheme.colorScheme.surface) { Column {
             Column(Modifier.heightIn(max = if (androidx.compose.foundation.layout.WindowInsets.isImeVisible) 90.dp else 230.dp).verticalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 6.dp)) {
                 if (selected != null && !running) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button({ vm.applyPromptResult(selected.id) }, Modifier.weight(1f).testTag("btn_apply"), enabled = !selected.applied, contentPadding = PaddingValues(4.dp)) { Text(if (selected.applied) "Применено" else "Применить", fontSize = 13.sp) }
-                    OutlinedButton({ vm.generate(retry = true) }, Modifier.weight(1f).testTag("btn_retry"), contentPadding = PaddingValues(4.dp)) { Text("Ещё раз", fontSize = 13.sp) }
+                    OutlinedButton({ vm.openAi(); onOpenSite() }, Modifier.weight(1f).testTag("btn_retry"), contentPadding = PaddingValues(4.dp)) { Text("Ещё раз", fontSize = 13.sp) }
                     OutlinedButton({ vm.savePromptResult(selected.id) }, Modifier.weight(1.3f).testTag("btn_save"), contentPadding = PaddingValues(4.dp)) { Text(if (selected.saved) "Сохранено" else "Сохранить как есть", fontSize = 13.sp, maxLines = 1) }
                 }
                 if (s.results.isNotEmpty()) {
@@ -94,34 +86,21 @@ fun PromptTab(vm: EditorViewModel, onLogin: (String) -> Unit, showWeb: Boolean, 
                         FilterChip(p.id == s.providerId, { vm.selectProvider(p.id) }, { Text(p.title) }, Modifier.padding(end = 6.dp).testTag("provider_${p.id}"))
                     }
                 }
-                when (s.loginState()) {
-                    LoginState.LOGGED_OUT -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().background(Color(0x33FFB74D), RoundedCornerShape(8.dp)).padding(6.dp)) {
-                        Icon(Icons.Default.Login, null, tint = Color(0xFFFFB74D)); Spacer(Modifier.width(6.dp))
-                        Text("Вход в ${provider.title} не выполнен", Modifier.weight(1f), fontSize = 13.sp)
-                        Button({ onLogin(provider.loginUrl) }, Modifier.testTag("btn_login")) { Text("Войти") }
-                    }
-                    LoginState.CHECKING -> Text("Проверяю вход в ${provider.title}…", fontSize = 12.sp, color = Color.Gray)
-                    LoginState.LOGGED_IN -> Text("✓ Вход в ${provider.title} выполнен", fontSize = 12.sp, color = Accent)
-                    LoginState.UNKNOWN -> Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Вход в ${provider.title} не проверен", fontSize = 12.sp, color = Color.Gray, modifier = Modifier.weight(1f))
-                        TextButton({ vm.checkLogin() }, enabled = !running) { Text("Проверить") }
-                        TextButton({ onLogin(provider.loginUrl) }, Modifier.testTag("btn_login")) { Text("Войти") }
-                    }
-                }
-                Text(provider.returnsImage, fontSize = 11.sp, color = Color.Gray)
+                Text("Как это работает: 1) нажмите «Открыть ${provider.title}» — запрос скопируется; 2) на сайте сами прикрепите фото, вставьте запрос и нажмите «Отправить»; 3) долго нажмите на готовую картинку и выберите «Взять в ФотоМастер» или сохраните её и загрузите из галереи.", fontSize = 12.sp, color = Color.LightGray, modifier = Modifier.testTag("ai_howto"))
+                Text("${provider.title}: ${provider.hint}", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(top = 2.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.testTag("prompt_chips")) {
                     PromptSession.QUICK.forEachIndexed { i, (title, full) ->
                         SuggestionChip({ s.applyChip(i); text = full; vm.promptTick.value++ }, { Text(title, fontSize = 12.sp) })
                     }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) { Switch(showWeb, { onToggleWeb() }); Spacer(Modifier.width(6.dp)); Text("Показать окно сайта (капча, проверка)", fontSize = 12.sp) }
-                val dump by vm.ai.lastDump.collectAsState()
-                val ctx = androidx.compose.ui.platform.LocalContext.current
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton({ vm.ai.dumpPage(provider) }, enabled = !running, modifier = Modifier.testTag("btn_dump")) { Text("Сохранить снимок страницы для отладки", fontSize = 12.sp) }
-                    dump?.let { f -> TextButton({ shareFile(ctx, f) }) { Text("Отправить", fontSize = 12.sp) } }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
+                    OutlinedButton({ if (vm.copyPrompt()) android.widget.Toast.makeText(ctx, "Запрос скопирован", android.widget.Toast.LENGTH_SHORT).show() }, Modifier.testTag("btn_copy")) { Icon(Icons.Default.ContentCopy, null); Spacer(Modifier.width(4.dp)); Text("Копировать запрос", fontSize = 12.sp) }
+                    OutlinedButton({ vm.savePhotoForAi() }, Modifier.testTag("btn_save_photo")) { Icon(Icons.Default.Image, null); Spacer(Modifier.width(4.dp)); Text("Сохранить фото для отправки", fontSize = 12.sp) }
+                    OutlinedButton({ importer.launch("image/*") }, Modifier.testTag("btn_import")) { Icon(Icons.Default.Download, null); Spacer(Modifier.width(4.dp)); Text("Загрузить результат из галереи", fontSize = 12.sp) }
+                    TextButton({ runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(provider.startUrl))) } }, Modifier.testTag("btn_browser")) { Text("Открыть в браузере", fontSize = 12.sp) }
                 }
-                Text("Фото отправляется выбранному сервису через ваш вход на его сайте. Пароли приложение не хранит.", fontSize = 10.sp, color = Color.Gray)
+                aiStatus?.let { Text(it, fontSize = 12.sp, color = Accent) }
+                Text("Приложение ничего не нажимает и не отправляет за вас: фото и запрос отправляете вы сами на сайте сервиса, по его правилам.", fontSize = 10.sp, color = Color.Gray)
             }
             Column(Modifier.padding(horizontal = 10.dp).padding(bottom = 6.dp)) {
                 s.error?.let { f ->
@@ -134,7 +113,7 @@ fun PromptTab(vm: EditorViewModel, onLogin: (String) -> Unit, showWeb: Boolean, 
                             }
                             Text(f.message, fontSize = 12.sp, maxLines = 3)
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                TextButton({ vm.generate(retry = true) }, Modifier.testTag("btn_error_retry")) { Text("Ещё раз") }
+                                TextButton({ vm.dismissAiError(); vm.openAi(); onOpenSite() }, Modifier.testTag("btn_error_retry")) { Text("Ещё раз") }
                                 if (f.log.isNotEmpty()) TextButton({ showLog = !showLog }, Modifier.testTag("btn_log")) { Text(if (showLog) "Скрыть журнал" else "Журнал (${f.log.size})") }
                                 TextButton({ vm.dismissAiError(); vm.autoEnhance() }) { Text("Автоулучшение") }
                             }
@@ -144,10 +123,8 @@ fun PromptTab(vm: EditorViewModel, onLogin: (String) -> Unit, showWeb: Boolean, 
                 }
                 OutlinedTextField(text, { text = it; s.updatePrompt(it) }, Modifier.fillMaxWidth().heightIn(min = 96.dp).bringIntoViewOnFocus().testTag("prompt_field"),
                     label = { Text("Что сделать с фото?") }, minLines = 3, maxLines = 8, textStyle = LocalTextStyle.current.copy(fontSize = 16.sp))
-                Button({ if (running) vm.ai.cancel() else vm.generate() }, Modifier.fillMaxWidth().height(56.dp).padding(top = 6.dp).testTag("btn_generate"), enabled = running || text.isNotBlank(),
-                    colors = if (running) ButtonDefaults.buttonColors(containerColor = Color(0xFFEF5350)) else ButtonDefaults.buttonColors()) {
-                    if (running) { CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)); Text("Остановить") }
-                    else { Icon(Icons.Default.AutoAwesome, null); Spacer(Modifier.width(8.dp)); Text("Сгенерировать в ${provider.title}", fontSize = 16.sp) }
+                Button({ vm.openAi(); onOpenSite() }, Modifier.fillMaxWidth().height(56.dp).padding(top = 6.dp).testTag("btn_generate")) {
+                    Icon(Icons.Default.OpenInNew, null); Spacer(Modifier.width(8.dp)); Text("Открыть ${provider.title}", fontSize = 16.sp)
                 }
             }
         } }
@@ -156,9 +133,3 @@ fun PromptTab(vm: EditorViewModel, onLogin: (String) -> Unit, showWeb: Boolean, 
 
 @Composable
 private fun Label(t: String) = Text(t, Modifier.background(Color(0xAA000000), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 11.sp)
-
-fun shareFile(ctx: android.content.Context, f: java.io.File) {
-    val uri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
-    val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/json").putExtra(android.content.Intent.EXTRA_STREAM, uri).putExtra(android.content.Intent.EXTRA_SUBJECT, f.name).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    ctx.startActivity(android.content.Intent.createChooser(send, "Снимок страницы").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-}

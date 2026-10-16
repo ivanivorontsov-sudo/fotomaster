@@ -13,15 +13,12 @@ class MemoryKeyValue : KeyValue {
 
 data class PromptResult<T>(val id: Int, val providerId: String, val providerTitle: String, val prompt: String, val image: T, val width: Int, val height: Int, val time: Long, val applied: Boolean = false, val saved: Boolean = false)
 
-enum class LoginState { UNKNOWN, CHECKING, LOGGED_IN, LOGGED_OUT }
-
 class PromptSession<T>(private val store: KeyValue, private val providerIds: List<String>) {
     var providerId: String = store.get(KEY)?.takeIf { it in providerIds } ?: providerIds.first(); private set
     var prompt: String = store.get(KEY_PROMPT) ?: QUICK.first().second
     val results = mutableListOf<PromptResult<T>>()
     var selectedId: Int? = null; private set
     var lastRequest: Pair<String, String>? = null; private set
-    private val login = HashMap<String, LoginState>()
     private var nextId = 1
 
     val selected get() = results.firstOrNull { it.id == selectedId }
@@ -40,7 +37,6 @@ class PromptSession<T>(private val store: KeyValue, private val providerIds: Lis
         val r = PromptResult(nextId++, pid, providerTitle, p, image, w, h, time)
         results.add(0, r); selectedId = r.id
         if (results.size > MAX) results.removeAt(results.size - 1)
-        setLogin(pid, LoginState.LOGGED_IN)
         return r
     }
 
@@ -56,12 +52,6 @@ class PromptSession<T>(private val store: KeyValue, private val providerIds: Lis
     fun onProviderChanged() { error = null }
     fun beginRequest(): Pair<String, String> { error = null; return startRequest() }
     fun resetForProject(id: String) { if (scope != id) { results.clear(); selectedId = null; lastRequest = null }; scope = id; error = null }
-    fun loginState(id: String = providerId) = login[id] ?: LoginState.UNKNOWN
-    fun setLogin(id: String, s: LoginState) { login[id] = s }
-    fun needsLogin(id: String = providerId) = loginState(id) == LoginState.LOGGED_OUT
-    fun onFailure(id: String, code: String, message: String) {
-        if (code == "login" || Regex("войт|вход|sign ?in|log ?in|авториз", RegexOption.IGNORE_CASE).containsMatchIn(message)) setLogin(id, LoginState.LOGGED_OUT)
-    }
 
     companion object {
         const val KEY = "prompt_provider"

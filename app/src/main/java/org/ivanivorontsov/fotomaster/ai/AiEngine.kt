@@ -9,68 +9,24 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Base64
 import android.webkit.CookieManager
-import android.webkit.JavascriptInterface
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.core.content.FileProvider
 import kotlinx.coroutines.flow.MutableStateFlow
-import java.io.ByteArrayOutputStream
-import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
-sealed class AiState {
-    data object Idle : AiState()
-    data class Running(val provider: String, val log: List<String>) : AiState()
-    data class Done(val provider: String, val bitmap: Bitmap, val log: List<String>, val warnings: List<String>) : AiState()
-    data class Failed(val provider: String, val code: String, val message: String, val log: List<String>) : AiState()
-}
+data class Imported(val providerTitle: String, val bitmap: Bitmap)
 
 class AiEngine(private val ctx: Context) {
-    val state = MutableStateFlow<AiState>(AiState.Idle)
     var webView: WebView? = null; private set
     private val main = Handler(Looper.getMainLooper())
-    private var provider: AiProvider? = null
-    private var prompt = ""
-    private var imageB64 = ""
-    private var imageFile: File? = null
-    private var mode = "run"
-    private val log = mutableListOf<String>()
-    private val warnings = mutableListOf<String>()
-    private var chooserArmed = false
-    @Volatile private var chooserUsed = false
-    private var injected = false
-    private val chunks = StringBuilder()
-    private var timeoutTask: Runnable? = null
-    var onCheck: ((Boolean, String) -> Unit)? = null
-    var onLoginHint: ((String, Boolean) -> Unit)? = null
-    val currentProviderId get() = provider?.id
-    val needUser = MutableStateFlow<String?>(null)
-    val lastDump = MutableStateFlow<File?>(null)
-    @Volatile private var userDoneFlag = false
-
-    fun continueAfterUser() { userDoneFlag = true }
-
-    fun dumpPage(p: AiProvider): Unit = onMain {
-        val v = webView ?: return@onMain
-        CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(v, true); flush() }
-        provider = p; mode = "dump"
-        val url = v.url
-        if (url != null && url.startsWith("http")) { injected = true; v.evaluateJavascript("window.__FM && (window.__FM.running = false);", null); inject() }
-        else { injected = false; v.loadUrl(p.startUrl) }
-    }
-
-    private fun writeDump(json: String): File {
-        val dir = File(ctx.cacheDir, "debug").apply { mkdirs() }
-        val f = File(dir, "${provider?.id ?: "page"}-dump-${System.currentTimeMillis()}.json")
-        f.writeText(json); dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(10)?.forEach { it.delete() }
-        return f
-    }
+    private var fileCallback: ValueCallback<Array<Uri>>? = null
+    var provider: AiProvider? = null; private set
+    val pickRequest = MutableStateFlow(0)
+    val offerImage = MutableStateFlow<String?>(null)
+    val imported = MutableStateFlow<Imported?>(null)
+    val status = MutableStateFlow<String?>(null)
 
     companion object {
         fun mobileUa(view: WebView): String =
@@ -86,133 +42,67 @@ class AiEngine(private val ctx: Context) {
             javaScriptEnabled = true; domStorageEnabled = true; databaseEnabled = true
             loadWithOverviewMode = true; useWideViewPort = true; mediaPlaybackRequiresUserGesture = true
             userAgentString = mobileUa(view); allowFileAccess = false
-            cacheMode = WebSettings.LOAD_DEFAULT; offscreenPreRaster = true
         }
-        view.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-        view.addJavascriptInterface(Bridge(), "FMBridge")
         view.webViewClient = object : WebViewClient() {
-            override fun onPageStarted(v: WebView, url: String, favicon: android.graphics.Bitmap?) { pageStart = android.os.SystemClock.elapsedRealtime(); loadedUrl = null }
-            override fun onPageFinished(v: WebView, url: String) {
-                CookieManager.getInstance().flush(); loadedUrl = url
-                if (provider != null) add("⏱ страница загружена за %.1fs, заблокировано лишних запросов: %d".format((android.os.SystemClock.elapsedRealtime() - pageStart) / 1000f, blocked))
-                if (provider != null && !injected) { injected = true; main.postDelayed({ inject() }, 250) }
-            }
-            override fun shouldInterceptRequest(v: WebView, r: WebResourceRequest): WebResourceResponse? =
-                if (ResourceFilter.block(r.url.toString(), r.isForMainFrame)) { blocked++; WebResourceResponse("text/plain", "utf-8", java.io.ByteArrayInputStream(ByteArray(0))) } else null
+            override fun onPageFinished(v: WebView, url: String) { CookieManager.getInstance().flush() }
         }
         view.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(w: WebView, cb: ValueCallback<Array<Uri>>, p: FileChooserParams): Boolean {
-                val f = imageFile
-                if (chooserArmed && f != null) {
-                    chooserArmed = false; chooserUsed = true
-                    val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
-                    cb.onReceiveValue(arrayOf(uri)); add("окно выбора файла перехвачено, фото подставлено"); return true
-                }
-                cb.onReceiveValue(null); return true
+                fileCallback?.onReceiveValue(null)
+                fileCallback = cb; pickRequest.value++
+                return true
             }
+        }
+        view.setOnLongClickListener {
+            val h = view.hitTestResult
+            val url = h.extra
+            if ((h.type == WebView.HitTestResult.IMAGE_TYPE || h.type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) && url != null) { offerImage.value = url; true } else false
+        }
+        view.setDownloadListener { url, _, _, mime, _ ->
+            if (mime.isNullOrBlank() || mime.startsWith("image/") || url.startsWith("data:image")) offerImage.value = url
+            else status.value = "Это не картинка: $mime"
         }
     }
 
-    @Volatile private var blocked = 0
-    private var pageStart = 0L
-    private var loadedUrl: String? = null
-
-    fun prewarm(p: AiProvider): Unit = onMain {
-        val v = webView ?: return@onMain
-        if (state.value is AiState.Running || provider != null) return@onMain
-        if (loadedUrl?.let { sameStart(it, p.startUrl) } == true || v.url?.let { sameStart(it, p.startUrl) } == true) return@onMain
-        blocked = 0; v.loadUrl(p.startUrl)
+    fun deliverPicked(uri: Uri?) {
+        fileCallback?.onReceiveValue(uri?.let { arrayOf(it) })
+        fileCallback = null
     }
 
-    private fun sameStart(a: String, b: String) = runCatching { val x = Uri.parse(a); val y = Uri.parse(b); x.host == y.host && x.path.orEmpty().trimEnd('/') == y.path.orEmpty().trimEnd('/') }.getOrDefault(false)
-
-    private fun add(s: String) { log.add(s); if (log.size > 200) log.removeAt(0)
-        val p = provider ?: return; if (state.value is AiState.Running) state.value = AiState.Running(p.title, log.toList()) }
-
-    private fun inject(): Unit = onMain {
-        val js = ctx.assets.open("ai/runner.js").bufferedReader().readText()
-        webView?.evaluateJavascript(js, null)
-    }
-
-    fun run(p: AiProvider, photo: Bitmap, userPrompt: String, timeoutMs: Long = 330_000) {
+    fun open(p: AiProvider) {
+        provider = p
         val v = webView ?: return
-        CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(v, true); flush() }
-        check(android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) { "run must be called on the main thread" }
-        provider = p; prompt = userPrompt; mode = "run"; injected = false; chooserUsed = false; chooserArmed = false
-        log.clear(); warnings.clear(); chunks.clear()
-        val scaled = limit(photo, 2560)
-        val bos = ByteArrayOutputStream(); scaled.compress(Bitmap.CompressFormat.JPEG, 93, bos)
-        val bytes = bos.toByteArray()
-        imageB64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-        imageFile = File(ctx.cacheDir, "ai_upload/photo.jpg").apply { parentFile?.mkdirs(); writeBytes(bytes) }
-        state.value = AiState.Running(p.title, listOf("Открываю ${p.title}…"))
-        timeoutTask?.let { main.removeCallbacks(it) }
-        timeoutTask = Runnable { if (state.value is AiState.Running) finishFail("timeout", "Сервис не ответил вовремя") }.also { main.postDelayed(it, timeoutMs) }
-        blocked = 0
-        val warm = loadedUrl?.let { sameStart(it, p.startUrl) } == true && v.url?.let { sameStart(it, p.startUrl) } == true
-        if (warm) { add("⏱ страница уже прогрета, без перезагрузки"); injected = true; v.evaluateJavascript("window.__FM && (window.__FM.running = false);", null); inject() }
-        else { v.stopLoading(); v.loadUrl(p.startUrl) }
+        val cur = v.url
+        if (cur == null || Uri.parse(cur).host != Uri.parse(p.startUrl).host) v.loadUrl(p.startUrl)
     }
 
-    fun check(p: AiProvider): Unit = onMain {
-        val v = webView ?: return@onMain
-        CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(v, true); flush() }
-        provider = p; mode = "check"; injected = false
-        v.loadUrl(p.startUrl)
-    }
+    fun close() { deliverPicked(null) }
 
-    fun cancel(): Unit = onMain { needUser.value = null; userDoneFlag = false; val wasRunning = state.value is AiState.Running; provider?.let { p -> if (wasRunning) { webView?.stopLoading(); webView?.loadUrl(p.startUrl) } }; provider = null; state.value = AiState.Idle }
+    fun declineOffer() { offerImage.value = null }
 
-    private fun limit(b: Bitmap, max: Int): Bitmap {
-        val m = maxOf(b.width, b.height); if (m <= max) return b
-        val s = max.toFloat() / m
-        return Bitmap.createScaledBitmap(b, (b.width * s).toInt(), (b.height * s).toInt(), true)
-    }
-
-    private fun finishOk(bytes: ByteArray) {
-        val bm = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        if (bm == null) { finishFail("decode", "Скачанный файл не является картинкой"); return }
-        timeoutTask?.let { main.removeCallbacks(it) }
-        state.value = AiState.Done(provider?.title ?: "", bm, log.toList(), warnings.toList())
-    }
-
-    private fun finishFail(code: String, msg: String) {
-        timeoutTask?.let { main.removeCallbacks(it) }
-        state.value = AiState.Failed(provider?.title ?: "", code, msg, log.toList())
-    }
-
-    private fun download(urls: String) = onMain {
-        val list = urls.split("\n").filter { it.startsWith("http") }
-        if (list.isEmpty()) { finishFail("download", "Нет адреса картинки"); return@onMain }
-        val url = list.first()
-        val req = NativeDownload.Request(url, CookieManager.getInstance().getCookie(url), webView?.settings?.userAgentString ?: "", webView?.url?.takeIf { it.startsWith("http") } ?: provider?.startUrl)
-        val cookies = list.associateWith { CookieManager.getInstance().getCookie(it) }
+    fun acceptOffer() {
+        val url = offerImage.value ?: return
+        offerImage.value = null
+        val title = provider?.title ?: "ИИ"
+        if (url.startsWith("data:")) {
+            val bytes = runCatching { Base64.decode(url.substringAfter(","), Base64.DEFAULT) }.getOrNull()
+            deliverBytes(title, bytes); return
+        }
+        if (!url.startsWith("http")) { status.value = "Эту картинку нельзя взять напрямую. Сохраните её в галерею и нажмите «Загрузить результат из галереи»."; return }
+        val req = NativeDownload.Request(url, CookieManager.getInstance().getCookie(url), webView?.settings?.userAgentString ?: "", webView?.url?.takeIf { it.startsWith("http") })
+        status.value = "Загружаю картинку…"
         Thread {
-            val r = NativeDownload.fetchFirst(list.map { req.copy(url = it, cookie = cookies[it]) })
-            main.post { r.fold({ finishOk(it) }, { finishFail("download", "Не удалось скачать результат: ${it.message}") }) }
+            val r = NativeDownload.fetchFirst(listOf(req))
+            main.post { r.fold({ deliverBytes(title, it) }, { status.value = "Не удалось загрузить картинку: ${it.message}. Сохраните её в галерею и загрузите оттуда." }) }
         }.start()
     }
 
-    private fun onMain(f: () -> Unit) { if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) f() else main.post(f) }
-
-    inner class Bridge {
-        @JavascriptInterface fun config(): String = provider?.raw?.toString() ?: "{}"
-        @JavascriptInterface fun prompt(): String = prompt
-        @JavascriptInterface fun mode(): String = mode
-        @JavascriptInterface fun imageBase64(): String = imageB64
-        @JavascriptInterface fun armChooser() { chooserArmed = true; chooserUsed = false }
-        @JavascriptInterface fun chooserUsed(): Boolean = chooserUsed
-        @JavascriptInterface fun log(s: String) { main.post { add(s) } }
-        @JavascriptInterface fun warn(s: String) { main.post { warnings.add(s); add("⚠ $s"); if (s.contains("вход", true)) onLoginHint?.invoke(provider?.id ?: "", false) } }
-        @JavascriptInterface fun fail(code: String, msg: String) { main.post { finishFail(code, msg) } }
-        @JavascriptInterface fun resultUrl(url: String) { main.post { add("скачиваю результат приложением"); download(url) } }
-        @JavascriptInterface fun resultBegin(url: String, len: Int) { synchronized(chunks) { chunks.setLength(0) } }
-        @JavascriptInterface fun resultChunk(s: String) { synchronized(chunks) { chunks.append(s) } }
-        @JavascriptInterface fun resultEnd() { val b = synchronized(chunks) { chunks.toString() }; val bytes = Base64.decode(b, Base64.DEFAULT); main.post { finishOk(bytes) } }
-        @JavascriptInterface fun needUser(msg: String) { userDoneFlag = false; main.post { add("нужна помощь: $msg"); needUser.value = msg } }
-        @JavascriptInterface fun userDone(): Boolean = userDoneFlag
-        @JavascriptInterface fun userHandled() { userDoneFlag = false; main.post { needUser.value = null } }
-        @JavascriptInterface fun saveDump(json: String) { val f = writeDump(json); main.post { lastDump.value = f; add("снимок страницы сохранён: ${f.name}") } }
-        @JavascriptInterface fun checkDone(ok: Boolean, info: String) { main.post { onCheck?.invoke(ok, info) } }
+    private fun deliverBytes(title: String, bytes: ByteArray?) {
+        val bm = bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+        if (bm == null) { status.value = "Файл не является картинкой"; return }
+        status.value = null
+        imported.value = Imported(title, bm)
     }
+
+    fun importBitmap(bm: Bitmap) { imported.value = Imported(provider?.title ?: "ИИ", bm) }
 }

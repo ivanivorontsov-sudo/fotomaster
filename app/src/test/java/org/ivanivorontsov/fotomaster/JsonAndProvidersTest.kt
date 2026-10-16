@@ -21,40 +21,18 @@ class JsonAndProvidersTest {
 
     private fun providersFile(): File = listOf(File("src/main/assets/ai/providers.json"), File("app/src/main/assets/ai/providers.json")).first { it.exists() }
 
-    @Test fun providersConfigComplete() {
-        val list = Providers.parse(providersFile().readText())
+    @Test fun providersConfigHasNoAutomation() {
+        val text = providersFile().readText()
+        val list = Providers.parse(text)
         assertEquals(listOf("qwen", "alice", "giga"), list.map { it.id })
-        for (p in list) {
-            val steps = p.raw.getJSONArray("steps"); val kinds = (0 until steps.length()).map { steps.getJSONObject(it).getString("do") }
-            assertTrue(p.id, kinds.containsAll(listOf("wait", "upload", "type", "send", "result")))
-            assertTrue(p.startUrl.startsWith("https://"))
-            for (i in 0 until steps.length()) { val s = steps.getJSONObject(i)
-                listOf("itemText", "fallbackText", "activeText", "srcPattern", "text").forEach { k -> if (s.has(k)) Regex(s.getString(k)) } }
-        }
+        for (p in list) { assertTrue(p.startUrl.startsWith("https://")); assertTrue(p.hint.contains("сами")) }
+        listOf("steps", "selectors", "\"do\"", "rewrite").forEach { assertFalse(it, text.contains(it)) }
     }
 
-    @Test fun qwenSelectsCreateImageBeforeUpload() {
-        val q = Providers.parse(providersFile().readText()).first { it.id == "qwen" }
-        val steps = q.raw.getJSONArray("steps"); val kinds = (0 until steps.length()).map { steps.getJSONObject(it).getString("do") }
-        assertTrue(kinds.indexOf("mode") in 0 until kinds.indexOf("upload"))
-        assertTrue(kinds.indexOf("upload") < kinds.indexOf("type")); assertTrue(kinds.indexOf("type") < kinds.indexOf("send"))
-        val mode = steps.getJSONObject(kinds.indexOf("mode"))
-        assertTrue(mode.getBoolean("optional")); assertTrue(mode.getBoolean("askUserOnFail")); assertTrue(mode.getBoolean("closeAfter"))
-        val re = Regex(mode.getString("itemText"), RegexOption.IGNORE_CASE)
-        listOf("Создать изображение", "Create Image", "Image Generation", "создать изображение").forEach { assertTrue(it, re.containsMatchIn(it)) }
-        listOf("Создать видео", "Create Video", "Поиск в сети", "Глубокое исследование", "Слайды").forEach { assertFalse(it, re.containsMatchIn(it)) }
-        val active = Regex(mode.getString("activeText"), RegexOption.IGNORE_CASE)
-        assertTrue(active.containsMatchIn("Модель 3.0")); assertTrue(active.containsMatchIn("Model 3.0"))
-        val up = steps.getJSONObject(kinds.indexOf("upload"))
-        assertTrue(Regex(up.getString("gridAfterText"), RegexOption.IGNORE_CASE).matches("Загрузить"))
-        assertEquals(1, up.getJSONArray("gridIndex").getInt(0))
-    }
-
-    @Test fun rewriteRulesProduceFullSizeUrls() {
-        val list = Providers.parse(providersFile().readText())
-        fun rw(id: String, url: String): String { val r = list.first { it.id == id }.raw.getJSONArray("steps").let { s -> (0 until s.length()).map { s.getJSONObject(it) }.first { it.getString("do") == "result" } }.getJSONArray("rewrite")
-            var u = url; for (i in 0 until r.length()) { val a = r.getJSONArray(i); u = u.replace(Regex(a.getString(0)), a.getString(1).replace("\$1", "\$1")) }; return u }
-        assertEquals("https://cdn.qwenlm.ai/output/abc.png", rw("qwen", "https://cdn.qwenlm.ai/output/abc.png?x-oss-process=image/resize,w_512"))
-        assertEquals("https://avatars.mds.yandex.net/get-shedevrum/123/abc/orig", rw("alice", "https://avatars.mds.yandex.net/get-shedevrum/123/abc/400x400"))
+    @Test fun noInjectedScriptsInApp() {
+        val root = listOf(File("src/main"), File("app/src/main")).first { it.exists() }
+        assertFalse(File(root, "assets/ai/runner.js").exists())
+        val code = root.walk().filter { it.extension == "kt" }.joinToString("\n") { it.readText() }
+        listOf("evaluateJavascript", "addJavascriptInterface", "JavascriptInterface", "dispatchEvent", "DataTransfer").forEach { assertFalse(it, code.contains(it)) }
     }
 }

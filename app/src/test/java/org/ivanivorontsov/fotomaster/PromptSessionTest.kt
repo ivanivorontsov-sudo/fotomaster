@@ -1,6 +1,5 @@
 package org.ivanivorontsov.fotomaster
 
-import org.ivanivorontsov.fotomaster.ai.LoginState
 import org.ivanivorontsov.fotomaster.ai.MemoryKeyValue
 import org.ivanivorontsov.fotomaster.ai.PromptSession
 import org.junit.Assert.*
@@ -41,14 +40,6 @@ class PromptSessionTest {
         val s = PromptSession<Int>(MemoryKeyValue(), ids)
         repeat(PromptSession.MAX + 5) { s.startRequest(); s.addResult("Qwen", it, 1, 1) }
         assertEquals(PromptSession.MAX, s.results.size); assertEquals(PromptSession.MAX + 4, s.results.first().image)
-    }
-
-    @Test fun loginStateFromFailuresAndSuccess() {
-        val s = PromptSession<String>(MemoryKeyValue(), ids)
-        assertEquals(LoginState.UNKNOWN, s.loginState()); assertFalse(s.needsLogin())
-        s.onFailure("qwen", "page", "Похоже, вход в аккаунт не выполнен"); assertTrue(s.needsLogin("qwen"))
-        s.onFailure("alice", "timeout", "Сервис не ответил вовремя"); assertFalse(s.needsLogin("alice"))
-        s.startRequest(); s.addResult("Qwen", "x", 1, 1); assertEquals(LoginState.LOGGED_IN, s.loginState("qwen"))
     }
 
     @Test fun blankPromptCannotGenerate() {

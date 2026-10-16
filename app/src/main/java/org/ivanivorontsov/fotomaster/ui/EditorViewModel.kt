@@ -75,46 +75,54 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
     init {
         refreshProjects()
         viewModelScope.launch {
-            ai.state.collect { s ->
-                when (s) {
-                    is org.ivanivorontsov.fotomaster.ai.AiState.Done -> {
-                        if (jobScope != prompt.scope) { ai.state.value = org.ivanivorontsov.fotomaster.ai.AiState.Idle; return@collect }
-                        val r = prompt.addResult(s.provider, s.bitmap, s.bitmap.width, s.bitmap.height)
-                        pendingBefore?.let { promptBefore[r.id] = it }
-                        bump()
-                    }
-                    is org.ivanivorontsov.fotomaster.ai.AiState.Failed -> { if (jobScope == prompt.scope) { ai.currentProviderId?.let { prompt.onFailure(it, s.code, s.message) }; prompt.showError(s.provider, s.message, s.log) }; ai.state.value = org.ivanivorontsov.fotomaster.ai.AiState.Idle; bump() }
-                    else -> bump()
-                }
+            ai.imported.collect { im ->
+                if (im == null) return@collect
+                ai.imported.value = null
+                val r = prompt.addResult(im.providerTitle, im.bitmap, im.bitmap.width, im.bitmap.height)
+                pendingBefore?.let { promptBefore[r.id] = it }
+                message.value = "Картинка получена из ${im.providerTitle}"
+                bump()
             }
         }
-        ai.onLoginHint = { id, ok -> if (id.isNotEmpty()) { prompt.setLogin(id, if (ok) org.ivanivorontsov.fotomaster.ai.LoginState.LOGGED_IN else org.ivanivorontsov.fotomaster.ai.LoginState.LOGGED_OUT); bump() } }
     }
 
     fun promptBeforeOf(id: Int): Bitmap? = promptBefore[id]
     fun putPromptBefore(id: Int, b: Bitmap) { promptBefore[id] = b; bump() }
 
-    private var jobScope: String? = null
-    fun resetAi() { if (ai.state.value !is org.ivanivorontsov.fotomaster.ai.AiState.Idle) ai.cancel(); prompt.dismissError(); bump() }
-    fun selectProvider(id: String) { resetAi(); prompt.selectProvider(id); prompt.onProviderChanged(); bump() }
+    fun selectProvider(id: String) { prompt.selectProvider(id); prompt.onProviderChanged(); bump() }
     fun dismissAiError() { prompt.dismissError(); bump() }
-    fun generate(retry: Boolean = false) {
-        if (ai.state.value is org.ivanivorontsov.fotomaster.ai.AiState.Running) ai.cancel()
-        prompt.dismissError()
-        val req = if (retry) prompt.retryRequest() ?: prompt.beginRequest() else prompt.beginRequest()
-        jobScope = prompt.scope
-        val p = providers.firstOrNull { it.id == req.first } ?: return
-        val bm = renderForAi() ?: return
-        pendingBefore = bm
-        ai.run(p, bm, req.second); bump()
+
+    fun copyPrompt(): Boolean {
+        val t = prompt.prompt.trim(); if (t.isEmpty()) return false
+        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("Запрос", t))
+        return true
     }
 
-    fun checkLogin(id: String = prompt.providerId) {
-        if (ai.state.value is org.ivanivorontsov.fotomaster.ai.AiState.Running) return
-        val p = providers.firstOrNull { it.id == id } ?: return
-        prompt.setLogin(id, org.ivanivorontsov.fotomaster.ai.LoginState.CHECKING); bump()
-        ai.onCheck = { ok, _ -> prompt.setLogin(id, if (ok) org.ivanivorontsov.fotomaster.ai.LoginState.LOGGED_IN else org.ivanivorontsov.fotomaster.ai.LoginState.LOGGED_OUT); bump() }
-        ai.check(p)
+    fun openAi() {
+        val req = prompt.beginRequest()
+        val p = providers.firstOrNull { it.id == req.first } ?: return
+        pendingBefore = renderForAi()
+        copyPrompt()
+        ai.open(p); bump()
+    }
+
+    fun savePhotoForAi() = viewModelScope.launch {
+        val bm = renderForAi() ?: return@launch
+        busy.value = "Сохраняю фото для отправки…"
+        try {
+            withContext(Dispatchers.IO) { BitmapIo.save(ctx, bm, null, BitmapIo.Format.JPEG, 93, keepExif = false, keepGps = false) }
+            message.value = "Фото сохранено в Pictures/FotoMaster. Выберите его на сайте нейросети."
+        } catch (e: Throwable) { message.value = "Не удалось сохранить: ${e.message}" } finally { busy.value = null }
+    }
+
+    fun importResult(uri: Uri) = viewModelScope.launch {
+        try {
+            val bm = withContext(Dispatchers.IO) { BitmapIo.decode(ctx, uri, 4096) }
+            if (pendingBefore == null) pendingBefore = renderForAi()
+            if (prompt.lastRequest == null) prompt.startRequest()
+            ai.importBitmap(bm)
+        } catch (e: Throwable) { message.value = "Не удалось открыть картинку: ${e.message}" }
     }
 
     fun applyPromptResult(id: Int) {
@@ -151,7 +159,6 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun load(p: ProjectInfo) {
         project = p; assets = ProjectAssets(ctx, p.id)
-        if (ai.state.value !is org.ivanivorontsov.fotomaster.ai.AiState.Idle) ai.cancel()
         prompt.resetForProject(p.id); promptBefore.clear(); bump()
         val uri = Uri.fromFile(p.source)
         val (w, h) = withContext(Dispatchers.IO) { BitmapIo.bounds(ctx, uri) }

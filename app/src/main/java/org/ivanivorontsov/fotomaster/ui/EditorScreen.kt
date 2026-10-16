@@ -31,7 +31,7 @@ enum class Tool(val title: String, val icon: ImageVector) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, showWeb: Boolean, onToggleWeb: () -> Unit, onAccounts: () -> Unit, onLogin: (String) -> Unit = {}, initialTab: Int = 0) {
+fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, showWeb: Boolean, onToggleWeb: () -> Unit, onAccounts: () -> Unit, onOpenSite: () -> Unit = {}, initialTab: Int = 0) {
     var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(initialTab) }
     val bm by vm.rendered.collectAsState()
     val before by vm.before.collectAsState()
@@ -64,7 +64,7 @@ fun EditorScreen(vm: EditorViewModel, onBack: () -> Unit, showWeb: Boolean, onTo
             Tab(tab == 0, { tab = 0 }, text = { Text("Редактор") }, icon = { Icon(Icons.Default.Tune, null) })
             Tab(tab == 1, { tab = 1 }, text = { Text("ИИ-промпт", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }, icon = { Icon(Icons.Default.AutoAwesome, null, tint = Accent) })
         }
-        if (tab == 1) { PromptTab(vm, onLogin, showWeb, onToggleWeb); return@Column }
+        if (tab == 1) { PromptTab(vm, onOpenSite); return@Column }
         Box(Modifier.weight(1f).fillMaxWidth().background(Color(0xFF08090B))) {
             ImageCanvas(bm, before, holdBefore, split, vt, handler.value)
             if (split != null) Slider(split!!, { split = it }, Modifier.align(Alignment.BottomCenter).padding(horizontal = 24.dp))
